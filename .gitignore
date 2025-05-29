@@ -1,0 +1,44 @@
+# Archivos y carpetas generados
+output/
+data/
+
+# Entornos virtuales de Python
+venv/
+.venv/
+ENV/
+env/
+ENV.bak/
+env.bak/
+
+# Archivos de caché de Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Archivos de configuración de IDEs/editores
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Archivos de sistema operativo
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Archivos de coverage de tests
+.coverage
+coverage.xml
+htmlcov/
+
+# Distribuciones de Python
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints 

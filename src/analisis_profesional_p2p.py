@@ -244,65 +244,59 @@ def analyze(df: pd.DataFrame, col_map: dict, sell_config: dict) -> tuple[pd.Data
     metrics: dict[str, pd.DataFrame | pd.Series] = {}
     logger.info("Calculando métricas existentes...")
 
-    # Filtro por 'Completed' para métricas financieras clave.
-    # Usar la columna de estado INTERNA (después del mapeo)
-    df_completed_for_metrics = df_processed.copy() # Por defecto, usar todo df_processed
+    # --- DataFrame para métricas específicas de ventas (que suelen requerir 'Completed') ---
+    # Este df_completed_for_sales_summary se usará solo para el resumen de ventas.
+    df_completed_for_sales_summary = pd.DataFrame() # Inicializar vacío
     if status_col in df_processed.columns:
-        # Usar valores de filtro de estado pasados como argumento, o 'Completed' por defecto.
-        # Para métricas generales, usualmente queremos 'Completed'.
-        # Aquí mantenemos el filtrado original por 'Completed' para estas métricas base.
-        # Los filtros de CLI ya se aplicaron antes de llamar a analyze.
-        target_status_for_financials = 'Completed' # Esto podría ser configurable si fuera necesario
-        df_completed_for_metrics = df_processed[df_processed[status_col] == target_status_for_financials].copy()
-        if df_completed_for_metrics.empty:
-            logger.warning(f"No hay operaciones con estado '{target_status_for_financials}' (columna '{status_col}') en el DataFrame actual para calcular métricas financieras.")
+        df_completed_for_sales_summary = df_processed[df_processed[status_col] == 'Completed'].copy()
+        if df_completed_for_sales_summary.empty:
+            logger.info(f"No hay operaciones con estado 'Completed' en el DataFrame actual (base para resumen de ventas). El resumen de ventas podría estar vacío.")
     else:
-        logger.warning(f"Columna de estado mapeada a '{status_col}' no encontrada. Métricas financieras pueden ser imprecisas o vacías (calculadas sobre todo el dataset).")
-        # Crear un df_completed_for_metrics vacío si status_col no existe, para que las métricas no fallen pero estén vacías
-        # O, alternativamente, calcularlas sobre df_processed (como está ahora) y emitir una advertencia más fuerte.
-        # Por ahora, si status_col no existe, las métricas se calculan sobre todo el df_processed.
+        logger.warning(f"Columna de estado '{status_col}' no encontrada. El resumen de ventas (que busca 'Completed') no se podrá calcular.")
 
-    # Verificar si las columnas necesarias para las métricas financieras existen en df_completed_for_metrics
-    # Usamos los NOMBRES NUMÉRICOS INTERNOS y los nombres INTERNOS de col_map
+    # --- Métricas Financieras y Estadísticas Clave (calculadas sobre df_processed) ---
+    # df_processed ya está filtrado por la categoría de estado deseada (todas, completadas, canceladas)
+    # desde el bucle principal antes de llamar a analyze.
+
+    # Verificar si las columnas necesarias para las métricas financieras existen en df_processed
     required_financial_cols_internal = [order_number_col, 'Quantity_num', 'TotalPrice_num', 'TotalFee', 'Price_num', asset_type_col, fiat_type_col]
     
-    # Chequear que las columnas mapeadas existan y las numéricas también
     missing_cols_check = []
-    for col_key in [order_number_col, asset_type_col, fiat_type_col]: # Columnas que vienen directo de col_map
-        if col_key not in df_completed_for_metrics.columns:
+    for col_key in [order_number_col, asset_type_col, fiat_type_col]:
+        if col_key not in df_processed.columns:
             missing_cols_check.append(f"'{col_key}' (mapeada desde config)")
-    for num_col_suffix in ['Quantity_num', 'TotalPrice_num', 'TotalFee', 'Price_num']: # Columnas numéricas generadas
-        if num_col_suffix not in df_completed_for_metrics.columns:
+    for num_col_suffix in ['Quantity_num', 'TotalPrice_num', 'TotalFee', 'Price_num']:
+        if num_col_suffix not in df_processed.columns:
             missing_cols_check.append(f"'{num_col_suffix}' (generada numéricamente)")
 
     if missing_cols_check:
-        logger.warning(f"Faltan columnas esenciales en el subconjunto para métricas financieras: {', '.join(missing_cols_check)}. Algunas métricas estarán vacías o darán error.")
+        logger.warning(f"Faltan columnas esenciales en el DataFrame para calcular métricas: {', '.join(missing_cols_check)}. Algunas métricas estarán vacías o darán error.")
+        # Inicializar métricas como vacías si faltan columnas clave
         metrics['asset_stats'] = pd.DataFrame()
         metrics['fiat_stats'] = pd.DataFrame()
         metrics['price_stats'] = pd.DataFrame()
         metrics['fees_stats'] = pd.DataFrame()
         metrics['monthly_fiat'] = pd.DataFrame()
     else:
-        logger.info("Calculando asset_stats...")
-        metrics['asset_stats'] = (df_completed_for_metrics.groupby([asset_type_col, order_type_col])
+        logger.info("Calculando asset_stats (sobre df_processed)...")
+        metrics['asset_stats'] = (df_processed.groupby([asset_type_col, order_type_col])
                                     .agg(operations=(order_number_col,'count'),
                                          quantity=('Quantity_num','sum'),
                                          total_fiat=('TotalPrice_num','sum'),
                                          total_fees=('TotalFee','sum'))
                                     .sort_values('total_fiat', ascending=False))
 
-        logger.info("Calculando fiat_stats...")
-        metrics['fiat_stats']  = (df_completed_for_metrics.groupby([fiat_type_col, order_type_col])
+        logger.info("Calculando fiat_stats (sobre df_processed)...")
+        metrics['fiat_stats']  = (df_processed.groupby([fiat_type_col, order_type_col])
                                     .agg(operations=(order_number_col,'count'),
                                          total_fiat=('TotalPrice_num','sum'),
                                          avg_price=('Price_num','mean'),
                                          total_fees=('TotalFee','sum'))
                                     .sort_values('total_fiat', ascending=False))
 
-        logger.info("Calculando price_stats...")
-        # Asegurarse de que price_stats no falle si no hay datos agrupados
-        if not df_completed_for_metrics.empty and fiat_type_col in df_completed_for_metrics and 'Price_num' in df_completed_for_metrics:
-            metrics['price_stats'] = (df_completed_for_metrics.groupby(fiat_type_col)['Price_num']
+        logger.info("Calculando price_stats (sobre df_processed)...")
+        if not df_processed.empty and fiat_type_col in df_processed.columns and 'Price_num' in df_processed.columns:
+            metrics['price_stats'] = (df_processed.groupby(fiat_type_col)['Price_num']
                                       .agg(avg_price='mean', median_price='median', min_price='min', max_price='max',
                                            std_price='std',
                                            q1_price=lambda x: x.quantile(0.25),
@@ -313,38 +307,31 @@ def analyze(df: pd.DataFrame, col_map: dict, sell_config: dict) -> tuple[pd.Data
                                           )
                                       .reset_index())
         else:
-            logger.warning(f"No se pueden calcular price_stats. DataFrame vacío, o faltan '{fiat_type_col}' o 'Price_num'.")
+            logger.warning(f"No se pueden calcular price_stats (sobre df_processed). DataFrame vacío, o faltan '{fiat_type_col}' o 'Price_num'.")
             metrics['price_stats'] = pd.DataFrame()
 
-
-        logger.info("Calculando fees_stats...")
-        # Asegurarse de que fees_stats no falle si no hay datos o columnas
-        if not df_completed_for_metrics.empty and asset_type_col in df_completed_for_metrics and 'TotalFee' in df_completed_for_metrics:
-             metrics['fees_stats'] = (df_completed_for_metrics.groupby(asset_type_col)
+        logger.info("Calculando fees_stats (sobre df_processed)...")
+        if not df_processed.empty and asset_type_col in df_processed.columns and 'TotalFee' in df_processed.columns:
+             metrics['fees_stats'] = (df_processed.groupby(asset_type_col)
                                      .agg(total_fees_collected=('TotalFee', 'sum'),
                                           avg_fee_per_op=('TotalFee', 'mean'),
-                                          # Simplificado: contar operaciones donde TotalFee > 0
                                           num_ops_with_fees=('TotalFee', lambda x: (x > 0).sum()), 
                                           max_fee=('TotalFee', 'max'))
                                      .sort_values('total_fees_collected', ascending=False))
         else:
-            logger.warning(f"No se pueden calcular fees_stats. DataFrame vacío, o faltan '{asset_type_col}' o 'TotalFee'.")
+            logger.warning(f"No se pueden calcular fees_stats (sobre df_processed). DataFrame vacío, o faltan '{asset_type_col}' o 'TotalFee'.")
             metrics['fees_stats'] = pd.DataFrame()
 
-        logger.info("Calculando monthly_fiat...")
-         # Asegurarse de que monthly_fiat no falle
-        if not df_completed_for_metrics.empty and 'YearMonth' in df_completed_for_metrics and \
-           fiat_type_col in df_completed_for_metrics and 'TotalPrice_num' in df_completed_for_metrics and \
-           order_type_col in df_completed_for_metrics: # Corregido: Eliminada \ al final de la línea anterior
-            metrics['monthly_fiat'] = (df_completed_for_metrics.groupby(['YearMonth', fiat_type_col, order_type_col])
-                                     ['TotalPrice_num'].sum().unstack(fill_value=0) # order_type_col (BUY/SELL) como columnas
+        logger.info("Calculando monthly_fiat (sobre df_processed)...")
+        if not df_processed.empty and 'YearMonth' in df_processed.columns and \
+           fiat_type_col in df_processed.columns and 'TotalPrice_num' in df_processed.columns and \
+           order_type_col in df_processed.columns:
+            metrics['monthly_fiat'] = (df_processed.groupby(['YearMonth', fiat_type_col, order_type_col])
+                                     ['TotalPrice_num'].sum().unstack(fill_value=0)
                                      .reset_index())
-            # Podríamos querer sumar BUY y SELL para un total mensual por fiat, o mantenerlos separados.
-            # Por ahora, los mantiene separados como columnas.
         else:
-            logger.warning(f"No se pueden calcular monthly_fiat. DataFrame vacío o faltan columnas requeridas (YearMonth, {fiat_type_col}, TotalPrice_num, {order_type_col}).")
+            logger.warning(f"No se pueden calcular monthly_fiat (sobre df_processed). DataFrame vacío o faltan columnas requeridas (YearMonth, {fiat_type_col}, TotalPrice_num, {order_type_col}).")
             metrics['monthly_fiat'] = pd.DataFrame()
-
 
     # --- Métricas Generales (sobre todo el df_processed, no solo 'Completed') ---
     # Estas usan el df_processed que ya tiene filtros CLI aplicados.
@@ -372,18 +359,19 @@ def analyze(df: pd.DataFrame, col_map: dict, sell_config: dict) -> tuple[pd.Data
 
     # --- NUEVAS MÉTRICAS DE RESUMEN DE VENTAS ---
     logger.info("Calculando nuevas métricas de resumen de ventas...")
-    sell_indicator_col_mapped = sell_config.get('indicator_column') # Este es el nombre de columna INTERNO
+    sell_indicator_col_mapped = sell_config.get('indicator_column') 
     sell_indicator_value = sell_config.get('indicator_value')
     
-    sales_summary_metrics = {} # Para almacenar DataFrames de resumen de ventas, uno por activo
+    sales_summary_metrics = {} 
 
     if not (sell_indicator_col_mapped and sell_indicator_value and sell_indicator_col_mapped in df_processed.columns):
         logger.warning(f"Configuración de ventas incompleta o columna '{sell_indicator_col_mapped}' no encontrada. No se calcularán las métricas de resumen de ventas.")
-    elif df_completed_for_metrics.empty: # Las métricas de venta se basan en transacciones completadas
-         logger.warning(f"No hay operaciones completadas para calcular el resumen de ventas.")
+    # Usar df_completed_for_sales_summary para el resumen de ventas, ya que este se basa en 'Completed'
+    elif df_completed_for_sales_summary.empty:
+         logger.warning(f"No hay operaciones completadas (df_completed_for_sales_summary) para calcular el resumen de ventas.")
     else:
-        # Filtrar solo operaciones de venta completadas
-        df_sales_completed = df_completed_for_metrics[df_completed_for_metrics[sell_indicator_col_mapped] == sell_indicator_value]
+        # Filtrar solo operaciones de venta completadas desde df_completed_for_sales_summary
+        df_sales_completed = df_completed_for_sales_summary[df_completed_for_sales_summary[sell_indicator_col_mapped] == sell_indicator_value]
 
         if df_sales_completed.empty:
             logger.info(f"No se encontraron operaciones de venta (columna '{sell_indicator_col_mapped}' == '{sell_indicator_value}') entre las completadas.")
@@ -1093,7 +1081,8 @@ def plot_fees_analysis(fees_stats_df: pd.DataFrame, out_dir: str, title_suffix: 
 def save_outputs(
     df_to_plot_from: pd.DataFrame, 
     metrics_to_save: dict[str, pd.DataFrame | pd.Series],
-    output_label: str, 
+    output_label: str, # "total" o el año
+    status_subdir: str, # "completadas", "canceladas", o "todas"
     base_output_dir: str, 
     file_name_suffix_from_cli: str, 
     title_suffix_from_cli: str, 
@@ -1103,7 +1092,7 @@ def save_outputs(
 ):
     """Guarda tablas de métricas, genera gráficos y un reporte HTML para un subconjunto de datos.\n"""
     
-    logger.info(f"\n--- Procesando y guardando resultados para: {output_label.upper()} ---")
+    logger.info(f"\n--- Procesando y guardando resultados para: {output_label.upper()} - {status_subdir.upper()} ---")
     script_dir = os.path.dirname(os.path.abspath(__file__))
     templates_path = os.path.join(script_dir, '..', 'templates') # Asume que templates está al nivel de src/
     if not os.path.exists(templates_path):
@@ -1117,10 +1106,13 @@ def save_outputs(
         logger.error(f"Error al cargar la plantilla Jinja2 'report_template.html' desde '{templates_path}': {e}. No se generará el reporte HTML.")
         template = None # Para evitar errores más adelante si la plantilla no se carga
 
-    current_period_dir = os.path.join(base_output_dir, output_label)
-    tables_dir = os.path.join(current_period_dir, "tables")
-    figures_dir = os.path.join(current_period_dir, "figures")
-    reports_dir = os.path.join(current_period_dir, "reports")
+    # Modificación para incluir status_subdir en la ruta
+    period_and_status_path = os.path.join(base_output_dir, output_label, status_subdir)
+    os.makedirs(period_and_status_path, exist_ok=True) # Asegurar que la carpeta base del status exista
+
+    tables_dir = os.path.join(period_and_status_path, "tables")
+    figures_dir = os.path.join(period_and_status_path, "figures")
+    reports_dir = os.path.join(period_and_status_path, "reports")
     os.makedirs(tables_dir, exist_ok=True)
     os.makedirs(figures_dir, exist_ok=True)
     os.makedirs(reports_dir, exist_ok=True)
@@ -1128,10 +1120,11 @@ def save_outputs(
     final_title_suffix = title_suffix_from_cli
     report_main_title = f"Reporte de Operaciones P2P"
     if output_label.lower() != "total":
-        final_title_suffix = f"{title_suffix_from_cli} (Año: {output_label})"
-        report_main_title += f" - Año {output_label}"
+        final_title_suffix = f"{title_suffix_from_cli} (Año: {output_label} - {status_subdir.capitalize()})"
+        report_main_title += f" - Año {output_label} ({status_subdir.capitalize()})"
     else:
-        report_main_title += " - Consolidado Total"
+        final_title_suffix = f"{title_suffix_from_cli} (Total - {status_subdir.capitalize()})" # Añadido para el caso total
+        report_main_title += f" - Consolidado Total ({status_subdir.capitalize()})"
     if title_suffix_from_cli:
         report_main_title += f" {title_suffix_from_cli}"
 
@@ -1149,11 +1142,11 @@ def save_outputs(
                 except Exception as e:
                     logger.error(f"  Error al guardar la tabla '{name}' en '{file_path}': {e}")
             else:
-                logger.info(f"  Tabla '{name}' para '{output_label}'{final_title_suffix} está vacía, no se guardará.")
+                logger.info(f"  Tabla '{name}' para '{output_label} - {status_subdir}'{final_title_suffix} está vacía, no se guardará.")
         else:
-            logger.warning(f"  El resultado '{name}' para '{output_label}' no es un DataFrame o Series, es {type(table_data)}. No se guardará como CSV.")
+            logger.warning(f"  El resultado '{name}' para '{output_label} - {status_subdir}' no es un DataFrame o Series, es {type(table_data)}. No se guardará como CSV.")
 
-    logger.info(f"\nGenerando y guardando gráficos para '{output_label}' en: {figures_dir}")
+    logger.info(f"\nGenerando y guardando gráficos para '{output_label} - {status_subdir}' en: {figures_dir}")
     
     # --- Preparar df_completed_for_plots --- 
     # Este df se usa como base para muchos gráficos que requieren transacciones 'Completed'
@@ -1163,11 +1156,15 @@ def save_outputs(
         # Usar el valor de estado de completado que se usó en analyze() o uno genérico
         # Aquí asumimos 'Completed' como el estado principal para estos gráficos generales.
         # Si se quisiera configurar, se necesitaría pasar ese valor.
+        # Esta lógica de filtrado para df_completed_for_plots se mantiene,
+        # ya que algunos gráficos específicos (como distribución de precios de ventas)
+        # pueden seguir necesitando solo las 'Completed' independientemente del status_subdir.
+        # El df_to_plot_from que llega ya está filtrado para el status_subdir si es necesario.
         df_completed_for_plots = df_to_plot_from[df_to_plot_from[status_col] == 'Completed'].copy()
         if df_completed_for_plots.empty:
-            logger.warning(f"No hay operaciones 'Completed' en el subset '{output_label}' para generar algunos gráficos detallados.")
+            logger.warning(f"No hay operaciones 'Completed' en el subset '{output_label} - {status_subdir}' para generar algunos gráficos detallados (df_completed_for_plots está vacío).")
     else:
-        logger.warning(f"Columna Status ('{status_col}') no encontrada. Algunos gráficos pueden no generarse o usar todos los datos.")
+        logger.warning(f"Columna Status ('{status_col}') no encontrada en '{output_label} - {status_subdir}'. Algunos gráficos pueden no generarse o usar todos los datos.")
 
     # --- Lista para recolectar información de figuras para el HTML --- 
     figures_for_html = []
@@ -1212,22 +1209,22 @@ def save_outputs(
 
     # --- Llamadas a las funciones de ploteo y recolección de rutas --- 
     # logger.info("Generación de gráficos comentada temporalmente para depuración.") # Se descomenta ahora
-    if 'hourly_counts' in metrics_to_save and isinstance(metrics_to_save['hourly_counts'], pd.Series):
+    if 'hourly_counts' in metrics_to_save and isinstance(metrics_to_save['hourly_counts'], pd.Series) and not metrics_to_save['hourly_counts'].empty:
         path = plot_hourly(metrics_to_save['hourly_counts'], figures_dir, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli)
         add_figure_to_html_list(path, "Operaciones por Hora")
 
-    if 'monthly_fiat' in metrics_to_save and isinstance(metrics_to_save['monthly_fiat'], pd.DataFrame):
+    if 'monthly_fiat' in metrics_to_save and isinstance(metrics_to_save['monthly_fiat'], pd.DataFrame) and not metrics_to_save['monthly_fiat'].empty:
         paths = plot_monthly(metrics_to_save['monthly_fiat'], figures_dir, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli)
         add_figure_to_html_list(paths, "Volumen Mensual de Fiat")
 
     # Gráficos de torta para distribuciones (side_counts, status_counts)
-    if 'side_counts' in metrics_to_save and isinstance(metrics_to_save['side_counts'], pd.Series):
+    if 'side_counts' in metrics_to_save and isinstance(metrics_to_save['side_counts'], pd.Series) and not metrics_to_save['side_counts'].empty:
         df_pie_side = metrics_to_save['side_counts'].reset_index()
         df_pie_side.columns = ['Tipo de Orden', 'Cantidad'] 
         path = plot_pie(df_pie_side, 'Cantidad', f'Distribución Tipos de Orden', 'buy_sell_distribution', figures_dir, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli)
         add_figure_to_html_list(path, "Distribución Tipos de Orden")
 
-    if 'status_counts' in metrics_to_save and isinstance(metrics_to_save['status_counts'], pd.Series):
+    if 'status_counts' in metrics_to_save and isinstance(metrics_to_save['status_counts'], pd.Series) and not metrics_to_save['status_counts'].empty:
         df_pie_status = metrics_to_save['status_counts'].reset_index()
         df_pie_status.columns = ['Estado', 'Cantidad']
         path = plot_pie(df_pie_status, 'Cantidad', f'Distribución Estados de Orden', 'order_status_distribution', figures_dir, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli)
@@ -1250,20 +1247,23 @@ def save_outputs(
         paths = plot_price_vs_payment_method(df_completed_for_plots, figures_dir, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli)
         add_figure_to_html_list(paths, "Precio vs. Método de Pago")
     else:
-        logger.info(f"Skipping plots based on completed data for '{output_label}' as df_completed_for_plots is empty.")
+        logger.info(f"Skipping plots based on completed data for '{output_label} - {status_subdir}' as df_completed_for_plots is empty.")
 
-    # Heatmap de actividad (usa df_to_plot_from, que es el df general para el periodo, con filtros CLI)
-    path = plot_activity_heatmap(df_to_plot_from, figures_dir, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli) # Asumiendo que esta no necesita col_map ya
-    add_figure_to_html_list(path, "Heatmap de Actividad")
+    # Heatmap de actividad (usa df_to_plot_from, que es el df general para el periodo y status_subdir)
+    if not df_to_plot_from.empty:
+        path = plot_activity_heatmap(df_to_plot_from, figures_dir, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli)
+        add_figure_to_html_list(path, "Heatmap de Actividad")
+    else:
+        logger.info(f"Skipping heatmap for '{output_label} - {status_subdir}' as df_to_plot_from is empty.")
 
     # Análisis de comisiones (usa métrica fees_stats)
-    if 'fees_stats' in metrics_to_save and isinstance(metrics_to_save['fees_stats'], pd.DataFrame):
-        path = plot_fees_analysis(metrics_to_save['fees_stats'], figures_dir, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli) # Asumiendo que esta no necesita col_map ya
+    if 'fees_stats' in metrics_to_save and isinstance(metrics_to_save['fees_stats'], pd.DataFrame) and not metrics_to_save['fees_stats'].empty:
+        path = plot_fees_analysis(metrics_to_save['fees_stats'], figures_dir, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli)
         add_figure_to_html_list(path, "Análisis de Comisiones")
 
     # --- Preparación del Contexto para el Reporte HTML --- 
     if template: # Solo proceder si la plantilla se cargó
-        logger.info(f"Preparando datos para el reporte HTML de '{output_label}'...")
+        logger.info(f"Preparando datos para el reporte HTML de '{output_label} - {status_subdir}'...")
         html_context = {
             'title': report_main_title,
             'generation_timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " (UTC" + datetime.datetime.now(datetime.timezone.utc).astimezone().strftime('%z') + ")",
@@ -1278,7 +1278,9 @@ def save_outputs(
         if cli_args.asset_filter: html_context['applied_filters']['Activos'] = cli_args.asset_filter
         if cli_args.status_filter: html_context['applied_filters']['Estados'] = cli_args.status_filter
         if cli_args.payment_method_filter: html_context['applied_filters']['Métodos de Pago'] = cli_args.payment_method_filter
-        if output_label.lower() != "total": html_context['applied_filters']['Periodo'] = f"Año {output_label}"
+        if output_label.lower() != "total": 
+            html_context['applied_filters']['Periodo'] = f"Año {output_label}"
+        html_context['applied_filters']['Categoría de Estado'] = status_subdir.capitalize()
 
         # 2. Resumen de Ventas
         sales_summary_df_key = 'sales_summary_all_assets_fiat_detailed'
@@ -1315,7 +1317,7 @@ def save_outputs(
         except Exception as e:
             logger.error(f"Error al renderizar o guardar el reporte HTML: {e}")
 
-    logger.info(f"--- Fin de procesamiento para: {output_label.upper()} ---")
+    logger.info(f"--- Fin de procesamiento para: {output_label.upper()} - {status_subdir.upper()} ---")
 
 # --- Lógica Principal (CLI) ---
 
@@ -1349,7 +1351,7 @@ if __name__ == "__main__":
     )
     parser.add_argument('--fiat_filter', nargs='*', help='Filtrar por una o más monedas Fiat (ej. UYU USD).')
     parser.add_argument('--asset_filter', nargs='*', help='Filtrar por uno o más tipos de Activos (ej. USDT BTC).')
-    parser.add_argument('--status_filter', nargs='*', default=['Completed'], help='Filtrar por uno o más Estados de orden (ej. Completed Cancelled). Default: Completed')
+    parser.add_argument('--status_filter', nargs='*', default=None, help='Filtrar por uno o más Estados de orden (ej. Completed Cancelled). Si no se especifica, se procesan todos los estados relevantes para las categorías todas/completadas/canceladas.')
     parser.add_argument('--payment_method_filter', nargs='*', help='Filtrar por uno o más Métodos de Pago.')
     parser.add_argument('--no_annual_breakdown', action='store_true', help='Si se establece, no se generan resultados desglosados por año.')
 
@@ -1374,7 +1376,8 @@ if __name__ == "__main__":
         processed_assets = [a.strip().upper() for a in args.asset_filter]
         file_suffix_parts_cli.append(f"asset_({'_'.join(processed_assets)})")
         title_suffix_parts_cli.append(f"Asset {', '.join(processed_assets)}")
-    if args.status_filter:
+    # Solo añadir filtro de estado al sufijo si el usuario lo especificó explícitamente
+    if args.status_filter: # Ya no hay default ['Completed'], así que esto es si el usuario lo pone
         processed_status = [s.strip().capitalize() for s in args.status_filter]
         file_suffix_parts_cli.append(f"status_({'_'.join(processed_status)})")
         title_suffix_parts_cli.append(f"Status {', '.join(processed_status)}")
@@ -1387,16 +1390,9 @@ if __name__ == "__main__":
         base_filename_suffix_cli = "_" + "_".join(file_suffix_parts_cli)
         analysis_title_suffix_cli = " (" + "; ".join(title_suffix_parts_cli) + ")"
     else:
-        if len(args.status_filter) == 1 and args.status_filter[0] == 'Completed':
-            base_filename_suffix_cli = "_general_status_completed"
-            analysis_title_suffix_cli = " (General - Status Completed)"
-        else: 
-            processed_status = [s.strip().capitalize() for s in args.status_filter]
-            base_filename_suffix_cli = f"_status_({'_'.join(processed_status)})"
-            analysis_title_suffix_cli = f" (Status {', '.join(processed_status)})"
-            if not args.status_filter : 
-                 base_filename_suffix_cli = "_general"
-                 analysis_title_suffix_cli = " (General)"
+        # Si no hay filtros CLI, el sufijo es general
+        base_filename_suffix_cli = "_general"
+        analysis_title_suffix_cli = " (General)"
     
     clean_filename_suffix_cli = base_filename_suffix_cli.replace("(", "").replace(")", "").replace(",", "").replace(";", "").replace(":", "").lower()
 
@@ -1455,8 +1451,9 @@ if __name__ == "__main__":
         df_cli_filtered = df_cli_filtered[df_cli_filtered['asset_type'].str.upper().str.strip().isin(processed_assets)]
         logger.info(f"Filtrado CLI por Asset: {processed_assets}. Filas restantes: {len(df_cli_filtered)}")
     if args.status_filter and 'status' in df_cli_filtered.columns:
-        df_cli_filtered = df_cli_filtered[df_cli_filtered['status'].str.capitalize().str.strip().isin(processed_status)]
-        logger.info(f"Filtrado CLI por Status: {processed_status}. Filas restantes: {len(df_cli_filtered)}")
+        processed_status_cli = [s.strip().capitalize() for s in args.status_filter]
+        df_cli_filtered = df_cli_filtered[df_cli_filtered['status'].str.capitalize().str.strip().isin(processed_status_cli)]
+        logger.info(f"Filtrado CLI explícito por Status: {processed_status_cli}. Filas restantes: {len(df_cli_filtered)}")
     if args.payment_method_filter and 'payment_method' in df_cli_filtered.columns:
         df_cli_filtered = df_cli_filtered[df_cli_filtered['payment_method'].isin(args.payment_method_filter)]
         logger.info(f"Filtrado CLI por Payment Method: {args.payment_method_filter}. Filas restantes: {len(df_cli_filtered)}")
@@ -1465,28 +1462,85 @@ if __name__ == "__main__":
         print(f"El DataFrame está vacío después de aplicar los filtros CLI. No se generarán resultados.")
         exit(0)
 
-    # --- Primer Análisis: TOTAL (sobre datos filtrados por CLI) ---
-    # Esta llamada a analyze procesará las columnas numéricas y de fecha si aún no existen.
-    print("\n=== Iniciando Análisis TOTAL (sobre datos filtrados por CLI) ===")
-    df_processed_total, metrics_total = analyze(df_cli_filtered.copy(), col_map, sell_config) 
-    save_outputs(df_processed_total, metrics_total, "total", args.out, clean_filename_suffix_cli, analysis_title_suffix_cli, col_map, args, config)
+    # --- Procesamiento y Análisis Principal ---
+    # 1. Ejecutar 'analyze' una vez sobre el df filtrado por CLI para obtener todas las columnas procesadas (ej. 'Year')
+    # Este df_master_processed será la base para los desgloses por estado y año.
+    logger.info("\n=== Pre-procesando DataFrame base con todos los filtros CLI aplicados ===")
+    df_master_processed, _ = analyze(df_cli_filtered.copy(), col_map, sell_config) # Las métricas aquí no se usan directamente para guardar por estado
 
-    # --- Análisis Anual (si no se especifica --no_annual_breakdown) ---
+    if df_master_processed.empty:
+        print("El DataFrame está vacío después del pre-procesamiento inicial (función analyze). No se generarán resultados.")
+        exit(0)
+
+    # Definir la columna de estado interna
+    status_col_internal = 'status' # Asumiendo que el renombrado de columnas ya ocurrió y 'status' es el nombre interno
+
+    # Lista de categorías de estado para iterar
+    status_categories = ["todas", "completadas", "canceladas"]
+
+    # --- Análisis por Período (Total y Anual) y por Categoría de Estado ---
+    
+    periods_to_process = {"total": df_master_processed.copy()}
+    
     if not args.no_annual_breakdown:
-        if 'Year' in df_processed_total.columns and not df_processed_total['Year'].isna().all():
-            unique_years = sorted(df_processed_total['Year'].dropna().unique().astype(int)) # MODIFICACIÓN TEMPORAL PARA DEBUG
-            print(f"\n=== Iniciando Análisis ANUAL para los años: {unique_years} ===")
+        if 'Year' in df_master_processed.columns and not df_master_processed['Year'].isna().all():
+            unique_years = sorted(df_master_processed['Year'].dropna().unique().astype(int))
+            logger.info(f"\n=== Años identificados para desglose: {unique_years} ===")
             for year_val in unique_years:
-                print(f"\n--- Preparando datos para el año: {year_val} ---")
-                df_subset_for_year = df_processed_total[df_processed_total['Year'] == year_val].copy()
-                
-                if df_subset_for_year.empty:
-                    print(f"No hay datos para el año {year_val} después de los filtros CLI. Se omite el análisis para este año.")
-                    continue
-
-                _ , year_specific_metrics = analyze(df_subset_for_year.copy(), col_map, sell_config)
-                save_outputs(df_subset_for_year, year_specific_metrics, str(year_val), args.out, clean_filename_suffix_cli, analysis_title_suffix_cli, col_map, args, config)
+                df_year_subset = df_master_processed[df_master_processed['Year'] == year_val].copy()
+                if not df_year_subset.empty:
+                    periods_to_process[str(year_val)] = df_year_subset
+                else:
+                    logger.info(f"No hay datos para el año {year_val} en el df_master_processed. Se omite para este año.")
         else:
-            print("Advertencia: La columna 'Year' no está disponible o no tiene datos válidos en el DataFrame procesado total. No se puede realizar el desglose anual.")
+            logger.warning("La columna 'Year' no está disponible o está vacía en el DataFrame pre-procesado. No se realizará el desglose anual.")
+
+    for period_label, df_period_base in periods_to_process.items():
+        logger.info(f"\n=== Iniciando Análisis para el PERÍODO: {period_label.upper()} ===")
+        
+        for status_category in status_categories:
+            logger.info(f"--- Procesando categoría de estado: {status_category.upper()} para el período: {period_label.upper()} ---")
+            
+            df_subset_for_status = pd.DataFrame() # Inicializar df vacío
+
+            if status_category == "todas":
+                df_subset_for_status = df_period_base.copy()
+            elif status_category == "completadas":
+                if status_col_internal in df_period_base.columns:
+                    df_subset_for_status = df_period_base[df_period_base[status_col_internal] == 'Completed'].copy()
+                else:
+                    logger.warning(f"Columna '{status_col_internal}' no encontrada para filtrar por 'Completadas' en período {period_label}. Omitiendo.")
+                    continue
+            elif status_category == "canceladas":
+                if status_col_internal in df_period_base.columns:
+                    df_subset_for_status = df_period_base[df_period_base[status_col_internal] != 'Completed'].copy()
+                else:
+                    logger.warning(f"Columna '{status_col_internal}' no encontrada para filtrar por 'Canceladas' en período {period_label}. Omitiendo.")
+                    continue
+            
+            if df_subset_for_status.empty:
+                logger.info(f"No hay datos para la categoría '{status_category}' en el período '{period_label}'. Se omite esta combinación.")
+                continue
+
+            logger.info(f"Analizando {len(df_subset_for_status)} filas para {period_label.upper()} - {status_category.upper()}")
+            # El df_subset_for_status ya tiene las columnas procesadas de df_master_processed,
+            # pero es mejor volver a llamar a analyze para que las métricas se calculen correctamente
+            # sobre el subconjunto específico (ej. status_counts, etc.).
+            # Si `analyze` es idempotente y no modifica el df innecesariamente, esto es seguro.
+            # La función `analyze` ha sido diseñada para ser más idempotente, así que debería estar bien.
+            processed_df_for_save, current_metrics = analyze(df_subset_for_status.copy(), col_map, sell_config)
+            
+            save_outputs(
+                df_to_plot_from=processed_df_for_save, # Usar el df procesado específico para este status y período
+                metrics_to_save=current_metrics, 
+                output_label=period_label, 
+                status_subdir=status_category,
+                base_output_dir=args.out, 
+                file_name_suffix_from_cli=clean_filename_suffix_cli, 
+                title_suffix_from_cli=analysis_title_suffix_cli, 
+                col_map=col_map, 
+                cli_args=args, 
+                config=config
+            )
 
     print(f"\n\u2705 Todos los análisis completados. Resultados generales en: {os.path.abspath(args.out)}")
