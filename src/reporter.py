@@ -60,7 +60,7 @@ def save_outputs(
 
     except Exception as e:
         logger.error(f"[REPORTER_DEBUG] Error al cargar plantilla Jinja2: {e}"); 
-        template = None # Asegurar que template es None si hay error
+        template = None
 
     period_and_status_path = os.path.join(base_output_dir, output_label, status_subdir)
     os.makedirs(period_and_status_path, exist_ok=True)
@@ -68,6 +68,16 @@ def save_outputs(
     figures_dir = os.path.join(period_and_status_path, "figures")
     reports_dir = os.path.join(period_and_status_path, "reports")
     os.makedirs(tables_dir, exist_ok=True); os.makedirs(figures_dir, exist_ok=True); os.makedirs(reports_dir, exist_ok=True)
+
+    # Crear subdirectorios para figuras por moneda
+    figures_dir_usd = os.path.join(figures_dir, "usd_usdt") # Nombrado usd_usdt para claridad
+    figures_dir_uyu = os.path.join(figures_dir, "uyu")
+    figures_dir_general = os.path.join(figures_dir, "general")
+    figures_dir_combined = os.path.join(figures_dir, "combined")
+    os.makedirs(figures_dir_usd, exist_ok=True)
+    os.makedirs(figures_dir_uyu, exist_ok=True)
+    os.makedirs(figures_dir_general, exist_ok=True)
+    os.makedirs(figures_dir_combined, exist_ok=True)
 
     final_title_suffix = title_suffix_from_cli
     report_main_title = f"Reporte de Operaciones P2P"
@@ -121,20 +131,29 @@ def save_outputs(
     df_to_plot_from_pandas = df_to_plot_from.to_pandas(use_pyarrow_extension_array=True) 
 
     figures_for_html = []
-    def add_figure_to_html_list(fig_path: str | list[str] | None, title_prefix: str):
+    def add_figure_to_html_list(fig_path: str | list[str] | None, title_prefix: str, subfolder: str | None = None):
         if fig_path: # Solo procesar si fig_path no es None
             if isinstance(fig_path, str) and os.path.exists(fig_path):
                 file_name = os.path.basename(fig_path)
-                relative_fig_path = os.path.join('..', 'figures', file_name).replace('\\', '/')
+                # Construir la ruta relativa incluyendo el subdirectorio si se proporciona
+                if subfolder:
+                    relative_fig_path = os.path.join('..', 'figures', subfolder, file_name).replace('\\\\', '/')
+                else:
+                    relative_fig_path = os.path.join('..', 'figures', file_name).replace('\\\\', '/')
+                
                 descriptive_title = title_prefix 
-                # DONE: 4.1 Distinguir tipo de archivo para modo interactivo
                 file_type = 'html' if file_name.lower().endswith('.html') else 'image'
                 figures_for_html.append({'title': descriptive_title, 'path': relative_fig_path, 'type': file_type})
             elif isinstance(fig_path, list):
                 for idx, single_path in enumerate(fig_path):
                     if isinstance(single_path, str) and os.path.exists(single_path):
                         single_file_name = os.path.basename(single_path)
-                        relative_single_path = os.path.join('..', 'figures', single_file_name).replace('\\', '/')
+                        # Asumimos que el subfolder se aplica a todos los paths en la lista si se proporciona
+                        if subfolder:
+                            relative_single_path = os.path.join('..', 'figures', subfolder, single_file_name).replace('\\\\', '/')
+                        else:
+                            relative_single_path = os.path.join('..', 'figures', single_file_name).replace('\\\\', '/')
+                        
                         base_name = single_file_name.replace(file_name_suffix_from_cli, '').replace('.png', '').replace('.html', '')
                         prefixes_to_remove = ['price_distribution', 'volume_vs_price_scatter', 'price_over_time', 'volume_over_time_asset_quantity', 'volume_over_time_fiat_value', 'price_vs_payment_method', 'monthly_fiat_volume', 'hourly_counts','buy_sell_distribution', 'order_status_distribution', 'activity_heatmap','fees_total_by_asset', 'sankey_fiat_to_asset', 'scatter_animated_price_qty']
                         cleaned_name_part = base_name
@@ -169,18 +188,18 @@ def save_outputs(
                     hourly_counts_pd.loc[valid_indices, counts_col_name].values, 
                     index=current_labels[valid_indices]
                 ).sort_index()
-                path_hourly = plotting.plot_hourly(hourly_counts_series, figures_dir, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli) 
+                path_hourly = plotting.plot_hourly(hourly_counts_series, figures_dir_general, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli) 
             except Exception as e_hc: 
                 logger.error(f"Error al procesar/plotear hourly_counts para '{output_label} - {status_subdir}': {e_hc}. DataFrame: \n{hourly_counts_pd.head()}")
-                path_hourly = None # Asegurar que path_hourly es None si hay error
+                path_hourly = None
         elif isinstance(hourly_counts_pd, pd.Series): 
              logger.info(f"hourly_counts_pd para '{output_label} - {status_subdir}' ya es una Serie, ploteando directamente.")
              try:
-                 path_hourly = plotting.plot_hourly(hourly_counts_pd.sort_index(), figures_dir, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli) 
+                 path_hourly = plotting.plot_hourly(hourly_counts_pd.sort_index(), figures_dir_general, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli) 
              except Exception as e_hc_series:
                  logger.error(f"Error al plotear hourly_counts (Series) para '{output_label} - {status_subdir}': {e_hc_series}.")
-                 path_hourly = None # Asegurar que path_hourly es None si hay error
-        add_figure_to_html_list(path_hourly, "Operaciones por Hora")
+                 path_hourly = None
+        add_figure_to_html_list(path_hourly, "Operaciones por Hora", subfolder="general")
     else:
         logger.info(f"No hay datos de hourly_counts para graficar en '{output_label} - {status_subdir}'.")
 
@@ -198,11 +217,11 @@ def save_outputs(
              logger.warning(f"Columna/Índice '{year_month_col_internal}' no encontrada en monthly_fiat_pd para '{output_label} - {status_subdir}'. No se puede graficar.")
         else:
             try:
-                paths_monthly = plotting.plot_monthly(df_to_plot_monthly, figures_dir, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli) 
+                paths_monthly = plotting.plot_monthly(df_to_plot_monthly, figures_dir_general, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli) 
             except Exception as e_mf:
                 logger.error(f"Error al plotear monthly_fiat para '{output_label} - {status_subdir}': {e_mf}.")
-                paths_monthly = None # Asegurar que paths_monthly es None si hay error
-        add_figure_to_html_list(paths_monthly, "Volumen Mensual de Fiat")
+                paths_monthly = None
+        add_figure_to_html_list(paths_monthly, "Volumen Mensual de Fiat", subfolder="general")
     else:
         logger.info(f"No hay datos de monthly_fiat para graficar en '{output_label} - {status_subdir}'.")
 
@@ -225,17 +244,17 @@ def save_outputs(
                     df_for_pie = counts_pd.set_index(label_col_name)[[values_col_name]].rename(columns={values_col_name: 'Cantidad'})
                 except KeyError as e_pie_prep:
                     logger.error(f"Error preparando datos para pie chart '{pie_metric_key}' ('{output_label} - {status_subdir}'): {e_pie_prep}. DF Head:\n{counts_pd.head()}")
-                    # df_for_pie se mantiene como None
+                    
             elif isinstance(counts_pd, pd.Series):
                 df_for_pie = counts_pd.to_frame(name='Cantidad')
             
             if df_for_pie is not None and not df_for_pie.empty:
                 try:
-                    path_pie = plotting.plot_pie(df_for_pie, 'Cantidad', pie_title, pie_fname, figures_dir, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli) 
+                    path_pie = plotting.plot_pie(df_for_pie, 'Cantidad', pie_title, pie_fname, figures_dir_general, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli) 
                 except Exception as e_pie_plot:
                     logger.error(f"Error al plotear pie chart '{pie_metric_key}' ('{output_label} - {status_subdir}'): {e_pie_plot}.")
                     path_pie = None
-            add_figure_to_html_list(path_pie, pie_title)
+            add_figure_to_html_list(path_pie, pie_title, subfolder="general")
         else:
             logger.info(f"No hay datos de '{pie_metric_key}' para graficar en '{output_label} - {status_subdir}'.")
 
@@ -243,13 +262,74 @@ def save_outputs(
     path_sankey = None
     if config.get('plotting', {}).get('generate_sankey_fiat_asset', True):
         logger.info(f"Intentando generar gráfico Sankey para '{output_label} - {status_subdir}'...")
-        path_sankey = plotting.plot_sankey_fiat_asset(
-            df_to_plot_from, # Pasar el DataFrame de Polars original
-            figures_dir, 
-            title_suffix=f" ({final_title_suffix})", 
-            file_identifier=file_name_suffix_from_cli
-        )
-        add_figure_to_html_list(path_sankey, "Sankey Fiat -> Activo")
+        # Primero, la versión que usa df_to_plot_from (DataFrame de Polars original)
+        if df_to_plot_from is not None and not df_to_plot_from.is_empty():
+            try:
+                path_sankey_general = plotting.plot_sankey_fiat_asset(
+                    df_to_plot_from, 
+                    figures_dir_general, # Guardar en figures/general/
+                    title_suffix=final_title_suffix, 
+                    file_identifier=file_name_suffix_from_cli
+                )
+                add_figure_to_html_list(path_sankey_general, "Flujo Fiat a Activo (Sankey General)", subfolder="general")
+            except Exception as e_sankey_plot:
+                logger.error(f"Error al generar gráfico Sankey general para '{output_label} - {status_subdir}': {e_sankey_plot}.")
+        else:
+            logger.info(f"DataFrame principal (df_to_plot_from) vacío para '{output_label} - {status_subdir}', no se genera Sankey general.")
+
+        # Adicionalmente, si existe la columna 'TotalPrice_USD_equivalent', generar un Sankey combinado
+        if 'TotalPrice_USD_equivalent' in df_to_plot_from_pandas.columns:
+            df_for_sankey_combined = df_to_plot_from_pandas.dropna(subset=['TotalPrice_USD_equivalent'])
+            if not df_for_sankey_combined.empty:
+                
+                try:
+                    # Convertimos el df de pandas a polars para la función de ploteo
+                    df_polars_for_sankey_combined = pl.from_pandas(df_for_sankey_combined)
+                    path_sankey_combined = plotting.plot_sankey_fiat_asset(
+                        df_polars_for_sankey_combined, 
+                        figures_dir_combined, # Guardar en figures/combined/
+                        value_col_name='TotalPrice_USD_equivalent', # PASAR LA COLUMNA CORRECTA
+                        title_suffix=f"{final_title_suffix} (Combinado USD Eq.)", 
+                        file_identifier=f"{file_name_suffix_from_cli}_combined_usd_eq"
+                    )
+                    add_figure_to_html_list(path_sankey_combined, "Flujo Fiat a Activo (Sankey Combinado USD Eq.)", subfolder="combined")
+                except TypeError as te:
+                    if "unexpected keyword argument 'value_col_name'" in str(te):
+                        logger.error(f"Error al generar Sankey combinado: la función plot_sankey_fiat_asset no acepta 'value_col_name'. Se necesita actualizar plotting.py. {te}")
+                    else:
+                        logger.error(f"Error (TypeError) al generar gráfico Sankey combinado para '{output_label} - {status_subdir}': {te}.")
+                except Exception as e_sankey_combined:
+                    logger.error(f"Error al generar gráfico Sankey combinado para '{output_label} - {status_subdir}': {e_sankey_combined}.")
+            else:
+                logger.info(f"No hay datos con 'TotalPrice_USD_equivalent' válido para Sankey combinado en '{output_label} - {status_subdir}'.")
+        else:
+            logger.warning(f"Columna 'TotalPrice_USD_equivalent' no encontrada para Sankey combinado en '{output_label} - {status_subdir}'.")
+
+    # --- Nuevo Gráfico: Completitud de Órdenes a lo largo del Tiempo ---
+    logger.info(f"Intentando generar gráfico de Completitud de Órdenes a lo largo del Tiempo para '{output_label} - {status_subdir}'...")
+    time_col_name = config.get('column_names', {}).get('match_time_local_internal', 'Match_time_local')
+    status_col_name = config.get('column_names', {}).get('status_internal', 'status') # Usar el nombre de columna de estado mapeado/configurado
+    
+    if not df_to_plot_from_pandas.empty and time_col_name in df_to_plot_from_pandas.columns and status_col_name in df_to_plot_from_pandas.columns:
+        try:
+            path_status_over_time = plotting.plot_order_status_over_time(
+                df_all_statuses_pd=df_to_plot_from_pandas, # Este DF ya contiene todos los estados para el periodo/status actual del reporte
+                time_col=time_col_name,
+                status_col=status_col_name,
+                out_dir=figures_dir_general, # Guardar en figures/general/
+                title_suffix=final_title_suffix,
+                file_identifier=file_name_suffix_from_cli
+            )
+            add_figure_to_html_list(path_status_over_time, "Distribución Porcentual de Estados de Órdenes por Mes", subfolder="general")
+        except Exception as e_status_ot_plot:
+            logger.error(f"Error al generar gráfico de Completitud de Órdenes para '{output_label} - {status_subdir}': {e_status_ot_plot}.")
+    elif df_to_plot_from_pandas.empty:
+        logger.info(f"DataFrame principal (df_to_plot_from_pandas) vacío para '{output_label} - {status_subdir}', no se genera gráfico de completitud de órdenes.")
+    else:
+        missing_cols_status_ot = []
+        if time_col_name not in df_to_plot_from_pandas.columns: missing_cols_status_ot.append(time_col_name)
+        if status_col_name not in df_to_plot_from_pandas.columns: missing_cols_status_ot.append(status_col_name)
+        logger.warning(f"Faltan columnas requeridas ({', '.join(missing_cols_status_ot)}) para gráfico de completitud de órdenes en '{output_label} - {status_subdir}'.")
 
     # --- Heatmaps Hora x Día (plot_heatmap_hour_day) --- 
     # df_to_plot_from_pandas ya está disponible y es un DataFrame de Pandas
@@ -261,20 +341,20 @@ def save_outputs(
         col_order_number = config.get('column_names', {}).get('order_number_internal', 'order_number')
         path_heatmap_count = plotting.plot_heatmap_hour_day(
             df_pd=df_to_plot_from_pandas, # PASAR EL DF PANDAS
-            out_dir=figures_dir, 
+            out_dir=figures_dir_general, # Guardar en figures/general/
             value_col_name=col_order_number, 
             agg_func='count', 
             title_suffix=f" ({final_title_suffix})",
             file_identifier=file_name_suffix_from_cli
         )
-        add_figure_to_html_list(path_heatmap_count, "Heatmap Actividad (Conteo por Hora/Día)")
+        add_figure_to_html_list(path_heatmap_count, "Heatmap Actividad (Conteo por Hora/Día)", subfolder="general")
 
         # Heatmap para la suma de TotalPrice_num
         logger.info(f"Intentando generar Heatmap Hora x Día (Suma TotalPrice) para '{output_label} - {status_subdir}'...")
         col_total_price = config.get('column_names', {}).get('total_price_num_internal', 'TotalPrice_num')
         path_heatmap_sum = plotting.plot_heatmap_hour_day(
             df_pd=df_to_plot_from_pandas, # PASAR EL DF PANDAS
-            out_dir=figures_dir, 
+            out_dir=figures_dir_general, # CORREGIDO: Usar figures_dir_general
             value_col_name=col_total_price, 
             agg_func='sum', 
             title_suffix=f" ({final_title_suffix})",
@@ -295,7 +375,6 @@ def save_outputs(
     else:
         logger.info(f"DataFrame principal (df_to_plot_from) vacío para '{output_label} - {status_subdir}', no se genera Sankey.")
 
-    # DONE: 2.2 Llamar a plot_heatmap_hour_day
     logger.info(f"Intentando generar Heatmaps Hora x Día para '{output_label} - {status_subdir}'...")
     path_heatmap_count = None
     path_heatmap_volume = None
@@ -318,13 +397,13 @@ def save_outputs(
             if col_for_counting:
                 path_heatmap_count = plotting.plot_heatmap_hour_day(
                     df_pd=df_to_plot_from_pandas, # PASAR EL DF PANDAS
-                    out_dir=figures_dir, 
-                    value_col_name=col_for_counting, # Columna a usar por aggfunc='count'
+                    out_dir=figures_dir_general, # Guardar en figures/general/
+                    value_col_name=col_for_counting, 
                     agg_func='count', 
                     title_suffix=final_title_suffix, 
                     file_identifier=file_name_suffix_from_cli
                 )
-                add_figure_to_html_list(path_heatmap_count, "Heatmap de Actividad (Conteo de Operaciones)")
+                add_figure_to_html_list(path_heatmap_count, "Heatmap de Actividad (Conteo de Operaciones)", subfolder="general")
             else:
                 logger.warning(f"No se pudo determinar una columna para el heatmap de conteo en '{output_label} - {status_subdir}'. El DataFrame está vacío o no tiene columnas.")
 
@@ -332,21 +411,158 @@ def save_outputs(
             logger.error(f"Error al generar Heatmap (conteo) para '{output_label} - {status_subdir}': {e_heatmap_count}.")
 
         # Para el heatmap de volumen (TotalPrice_num):
-        if 'TotalPrice_num' in df_to_plot_from.columns: 
-            try:
-                path_heatmap_volume = plotting.plot_heatmap_hour_day(
-                    df_pd=df_to_plot_from_pandas, # PASAR EL DF PANDAS
-                    out_dir=figures_dir, 
-                    value_col_name='TotalPrice_num', 
-                    agg_func='sum', 
-                    title_suffix=final_title_suffix, 
-                    file_identifier=file_name_suffix_from_cli
-                )
-                add_figure_to_html_list(path_heatmap_volume, "Heatmap de Actividad (Volumen TotalPrice_num)")
-            except Exception as e_heatmap_vol:
-                logger.error(f"Error al generar Heatmap (volumen) para '{output_label} - {status_subdir}': {e_heatmap_vol}.")
+        # if 'TotalPrice_num' in df_to_plot_from.columns: 
+        #     try:
+        #         path_heatmap_volume = plotting.plot_heatmap_hour_day(
+        #             df_pd=df_to_plot_from_pandas, # PASAR EL DF PANDAS
+        #             out_dir=figures_dir, 
+        #             value_col_name='TotalPrice_num', 
+        #             agg_func='sum', 
+        #             title_suffix=final_title_suffix, 
+        #             file_identifier=file_name_suffix_from_cli
+        #         )
+        #         add_figure_to_html_list(path_heatmap_volume, "Heatmap de Actividad (Volumen TotalPrice_num)")
+        #     except Exception as e_heatmap_vol:
+        #         logger.error(f"Error al generar Heatmap (volumen) para '{output_label} - {status_subdir}': {e_heatmap_vol}.")
+        # else:
+        #     logger.warning(f"Columna 'TotalPrice_num' no encontrada para heatmap de volumen en '{output_label} - {status_subdir}'.")
+
+        # --- Heatmaps de Volumen por Moneda Fiat Específica ---
+        if 'TotalPrice_num' in df_to_plot_from_pandas.columns and 'fiat_type' in df_to_plot_from_pandas.columns:
+            # Heatmap para USD y USDT (usando TotalPrice_num filtrado)
+            df_usd_usdt = df_to_plot_from_pandas[df_to_plot_from_pandas['fiat_type'].isin(['USD', 'USDT'])]
+            if not df_usd_usdt.empty:
+                try:
+                    path_heatmap_volume_usd = plotting.plot_heatmap_hour_day(
+                        df_pd=df_usd_usdt,
+                        out_dir=figures_dir_usd, # Guardar en figures/usd_usdt/
+                        value_col_name='TotalPrice_num',
+                        agg_func='sum',
+                        title_suffix=f"{final_title_suffix} (USD/USDT)",
+                        file_identifier=f"{file_name_suffix_from_cli}_vol_usd_usdt"
+                    )
+                    add_figure_to_html_list(path_heatmap_volume_usd, "Heatmap de Actividad (Volumen USD/USDT)", subfolder="usd_usdt")
+                except Exception as e_heatmap_vol_usd:
+                    logger.error(f"Error al generar Heatmap de volumen USD/USDT para '{output_label} - {status_subdir}': {e_heatmap_vol_usd}.")
+            else:
+                logger.info(f"No hay datos con fiat_type USD o USDT para heatmap de volumen en '{output_label} - {status_subdir}'.")
+
+            # Heatmap para UYU
+            df_uyu = df_to_plot_from_pandas[df_to_plot_from_pandas['fiat_type'] == 'UYU']
+            if not df_uyu.empty:
+                try:
+                    path_heatmap_volume_uyu = plotting.plot_heatmap_hour_day(
+                        df_pd=df_uyu,
+                        out_dir=figures_dir_uyu, # Guardar en figures/uyu/
+                        value_col_name='TotalPrice_num',
+                        agg_func='sum',
+                        title_suffix=f"{final_title_suffix} (UYU)",
+                        file_identifier=f"{file_name_suffix_from_cli}_vol_uyu"
+                    )
+                    add_figure_to_html_list(path_heatmap_volume_uyu, "Heatmap de Actividad (Volumen UYU)", subfolder="uyu")
+                except Exception as e_heatmap_vol_uyu:
+                    logger.error(f"Error al generar Heatmap de volumen UYU para '{output_label} - {status_subdir}': {e_heatmap_vol_uyu}.")
+            else:
+                logger.info(f"No hay datos con fiat_type UYU para heatmap de volumen en '{output_label} - {status_subdir}'.")
         else:
-            logger.warning(f"Columna 'TotalPrice_num' no encontrada para heatmap de volumen en '{output_label} - {status_subdir}'.")
+            logger.warning(f"Columnas 'TotalPrice_num' o 'fiat_type' no encontradas para heatmaps de volumen por moneda en '{output_label} - {status_subdir}'.")
+
+        # --- Heatmap de Volumen Combinado (equivalente en USD) ---
+        if 'TotalPrice_USD_equivalent' in df_to_plot_from_pandas.columns:
+            df_with_usd_equivalent = df_to_plot_from_pandas.dropna(subset=['TotalPrice_USD_equivalent'])
+            if not df_with_usd_equivalent.empty:
+                try:
+                    path_heatmap_volume_combined = plotting.plot_heatmap_hour_day(
+                        df_pd=df_with_usd_equivalent,
+                        out_dir=figures_dir_combined, # Guardar en figures/combined/
+                        value_col_name='TotalPrice_USD_equivalent',
+                        agg_func='sum',
+                        title_suffix=f"{final_title_suffix} (Volumen Combinado USD Eq.)",
+                        file_identifier=f"{file_name_suffix_from_cli}_vol_combined_usd_eq"
+                    )
+                    add_figure_to_html_list(path_heatmap_volume_combined, "Heatmap de Actividad (Volumen Combinado USD Eq.)", subfolder="combined")
+                except Exception as e_heatmap_vol_combined:
+                    logger.error(f"Error al generar Heatmap de volumen combinado para '{output_label} - {status_subdir}': {e_heatmap_vol_combined}.")
+            else:
+                logger.info(f"No hay datos con 'TotalPrice_USD_equivalent' válido para heatmap de volumen combinado en '{output_label} - {status_subdir}'.")
+        else:
+            logger.warning(f"Columna 'TotalPrice_USD_equivalent' no encontrada para heatmap de volumen combinado en '{output_label} - {status_subdir}'.")
+
+        # --- Nuevo Gráfico: Volumen por Día de la Semana ---
+        time_col_for_dow = config.get('column_names', {}).get('match_time_local_internal', 'Match_time_local')
+        total_price_col_for_dow = config.get('column_names', {}).get('total_price_num_internal', 'TotalPrice_num')
+        total_price_usd_eq_col_for_dow = 'TotalPrice_USD_equivalent' # Asumimos que este nombre es estable
+
+        if time_col_for_dow in df_to_plot_from_pandas.columns:
+            # 1. Volumen General (TotalPrice_num) por Día de la Semana
+            if total_price_col_for_dow in df_to_plot_from_pandas.columns:
+                logger.info(f"Generando Volumen General ({total_price_col_for_dow}) por Día de la Semana para '{output_label} - {status_subdir}'...")
+                path_vol_dow_general = plotting.plot_volume_by_day_of_week(
+                    df_data_pd=df_to_plot_from_pandas,
+                    time_col=time_col_for_dow,
+                    volume_col=total_price_col_for_dow,
+                    volume_col_label=f"Volumen Total ({total_price_col_for_dow})",
+                    out_dir=figures_dir_general,
+                    title_suffix=final_title_suffix,
+                    file_identifier=f"{file_name_suffix_from_cli}_general"
+                )
+                add_figure_to_html_list(path_vol_dow_general, f"Volumen General ({total_price_col_for_dow}) por Día de la Semana", subfolder="general")
+            else:
+                logger.warning(f"Columna '{total_price_col_for_dow}' no encontrada. No se generará gráfico de Volumen General por Día de la Semana.")
+
+            # 2. Volumen USD/USDT (TotalPrice_num) por Día de la Semana
+            if not df_usd_usdt.empty and total_price_col_for_dow in df_usd_usdt.columns: # df_usd_usdt se define antes para los heatmaps
+                logger.info(f"Generando Volumen USD/USDT ({total_price_col_for_dow}) por Día de la Semana para '{output_label} - {status_subdir}'...")
+                path_vol_dow_usd = plotting.plot_volume_by_day_of_week(
+                    df_data_pd=df_usd_usdt,
+                    time_col=time_col_for_dow,
+                    volume_col=total_price_col_for_dow,
+                    volume_col_label="Volumen Total (USD/USDT)",
+                    out_dir=figures_dir_usd,
+                    title_suffix=f"{final_title_suffix} (USD/USDT)",
+                    file_identifier=f"{file_name_suffix_from_cli}_usd_usdt",
+                    specific_plot_title=f"Volumen Total (USD/USDT) por Día de la Semana{final_title_suffix}"
+                )
+                add_figure_to_html_list(path_vol_dow_usd, "Volumen (USD/USDT) por Día de la Semana", subfolder="usd_usdt")
+            else:
+                logger.info(f"No hay datos USD/USDT o falta columna '{total_price_col_for_dow}' para Volumen por Día de la Semana.")
+
+            # 3. Volumen UYU (TotalPrice_num) por Día de la Semana
+            if not df_uyu.empty and total_price_col_for_dow in df_uyu.columns: # df_uyu se define antes para los heatmaps
+                logger.info(f"Generando Volumen UYU ({total_price_col_for_dow}) por Día de la Semana para '{output_label} - {status_subdir}'...")
+                path_vol_dow_uyu = plotting.plot_volume_by_day_of_week(
+                    df_data_pd=df_uyu,
+                    time_col=time_col_for_dow,
+                    volume_col=total_price_col_for_dow,
+                    volume_col_label="Volumen Total (UYU)",
+                    out_dir=figures_dir_uyu,
+                    title_suffix=f"{final_title_suffix} (UYU)",
+                    file_identifier=f"{file_name_suffix_from_cli}_uyu",
+                    specific_plot_title=f"Volumen Total (UYU) por Día de la Semana{final_title_suffix}"
+                )
+                add_figure_to_html_list(path_vol_dow_uyu, "Volumen (UYU) por Día de la Semana", subfolder="uyu")
+            else:
+                logger.info(f"No hay datos UYU o falta columna '{total_price_col_for_dow}' para Volumen por Día de la Semana.")
+
+            # 4. Volumen Combinado (TotalPrice_USD_equivalent) por Día de la Semana
+            if total_price_usd_eq_col_for_dow in df_to_plot_from_pandas.columns:
+                logger.info(f"Generando Volumen Combinado ({total_price_usd_eq_col_for_dow}) por Día de la Semana para '{output_label} - {status_subdir}'...")
+                path_vol_dow_combined = plotting.plot_volume_by_day_of_week(
+                    df_data_pd=df_to_plot_from_pandas,
+                    time_col=time_col_for_dow,
+                    volume_col=total_price_usd_eq_col_for_dow,
+                    volume_col_label="Volumen Total (USD Equivalente)",
+                    out_dir=figures_dir_combined,
+                    title_suffix=final_title_suffix,
+                    file_identifier=f"{file_name_suffix_from_cli}_combined_usd_eq",
+                    specific_plot_title=f"Volumen Total (USD Equivalente) por Día de la Semana{final_title_suffix}"
+                )
+                add_figure_to_html_list(path_vol_dow_combined, "Volumen Combinado (USD Eq.) por Día de la Semana", subfolder="combined")
+            else:
+                logger.warning(f"Columna '{total_price_usd_eq_col_for_dow}' no encontrada. No se generará gráfico de Volumen Combinado por Día de la Semana.")
+        else:
+            logger.warning(f"Columna de tiempo '{time_col_for_dow}' no encontrada. No se generarán gráficos de Volumen por Día de la Semana.")
+
     else:
         logger.info(f"DataFrame principal (df_to_plot_from) vacío para '{output_label} - {status_subdir}', no se generan Heatmaps Hora x Día.")
 
@@ -460,16 +676,15 @@ def save_outputs(
             ]
             if not df_filtered.empty:
                 specific_file_id = f"{file_name_suffix_from_cli}_{pair_info['asset']}_{pair_info['fiat']}"
+                current_subfolder = "usd_usdt" if pair_info['fiat'] == "USD" else "uyu" # Determinar subfolder
+                output_directory = figures_dir_usd if pair_info['fiat'] == "USD" else figures_dir_uyu
+
                 try:
-                    # Asumiendo que la función de ploteo devuelve una lista de paths.
-                    # Si df_filtered es para un solo par, la lista podría tener un solo path.
-                    paths_dist_pair = plotting.plot_price_distribution(df_filtered, figures_dir, title_suffix=final_title_suffix, file_identifier=specific_file_id)
+                    paths_dist_pair = plotting.plot_price_distribution(df_filtered, output_directory, title_suffix=final_title_suffix, file_identifier=specific_file_id)
                     if paths_dist_pair:
-                        # Si devuelve una lista, tomamos el primer (y esperado único) elemento.
-                        # Si devuelve una cadena, add_figure_to_html_list también lo maneja.
                         path_to_add = paths_dist_pair[0] if isinstance(paths_dist_pair, list) and paths_dist_pair else paths_dist_pair
-                        if path_to_add: # Asegurarse de que no esté vacío
-                             add_figure_to_html_list(path_to_add, f"Distribución de Precios - {pair_info['title_suffix']}")
+                        if path_to_add:
+                             add_figure_to_html_list(path_to_add, f"Distribución de Precios - {pair_info['title_suffix']}", subfolder=current_subfolder)
                 except Exception as e:
                     logger.error(f"Error en plot_price_distribution para {pair_info['asset']}/{pair_info['fiat']}: {e}")
             else:
@@ -483,17 +698,374 @@ def save_outputs(
             ]
             if not df_filtered.empty:
                 specific_file_id = f"{file_name_suffix_from_cli}_{pair_info['asset']}_{pair_info['fiat']}"
+                current_subfolder = "usd_usdt" if pair_info['fiat'] == "USD" else "uyu" # Determinar subfolder
+                output_directory = figures_dir_usd if pair_info['fiat'] == "USD" else figures_dir_uyu
+
                 try:
-                    paths_scatter_pair = plotting.plot_volume_vs_price_scatter(df_filtered, figures_dir, title_suffix=final_title_suffix, file_identifier=specific_file_id)
+                    paths_scatter_pair = plotting.plot_volume_vs_price_scatter(df_filtered, output_directory, title_suffix=final_title_suffix, file_identifier=specific_file_id)
                     if paths_scatter_pair:
                         path_to_add = paths_scatter_pair[0] if isinstance(paths_scatter_pair, list) and paths_scatter_pair else paths_scatter_pair
                         if path_to_add:
-                            add_figure_to_html_list(path_to_add, f"Volumen vs. Precio - {pair_info['title_suffix']}")
+                            add_figure_to_html_list(path_to_add, f"Volumen vs. Precio - {pair_info['title_suffix']}", subfolder=current_subfolder)
                 except Exception as e:
                     logger.error(f"Error en plot_volume_vs_price_scatter para {pair_info['asset']}/{pair_info['fiat']}: {e}")
             else:
                 logger.info(f"No hay datos 'Completed' para {pair_info['asset']}/{pair_info['fiat']} para Volumen vs. Precio.")
         
+        # --- Nuevos Boxplots por Método de Pago ---
+        payment_method_col_name = config.get('column_names', {}).get('payment_method_cleaned_internal', 'Payment_method_cleaned') # Usar el nombre de columna configurado o un default
+
+        if payment_method_col_name in df_completed_for_plots_pandas.columns:
+            # 1. Boxplot de Price_num vs Payment_method (USD/USDT)
+            logger.info(f"Generando Boxplot Precio vs Método de Pago para USD/USDT en '{output_label} - {status_subdir}'...")
+            df_usd_pair = df_completed_for_plots_pandas[
+                (df_completed_for_plots_pandas[asset_col_name] == 'USDT') &
+                (df_completed_for_plots_pandas[fiat_col_name] == 'USD')
+            ]
+            if not df_usd_pair.empty:
+                paths_boxplot_price_usd = plotting.plot_boxplot_by_payment_method(
+                    df_data_pd=df_usd_pair,
+                    value_col_name='Price_num',
+                    value_col_label="Precio",
+                    payment_method_col=payment_method_col_name,
+                    asset_col=asset_col_name,
+                    fiat_col=fiat_col_name,
+                    out_dir=figures_dir_usd,
+                    title_suffix=final_title_suffix,
+                    file_identifier=f"{file_name_suffix_from_cli}_USDT_USD"
+                )
+                add_figure_to_html_list(paths_boxplot_price_usd, "Distribución de Precio por Método de Pago (USDT/USD)", subfolder="usd_usdt")
+            else:
+                logger.info(f"No hay datos USDT/USD para Boxplot Precio vs Método de Pago en '{output_label} - {status_subdir}'.")
+
+            # 2. Boxplot de TotalPrice_num vs Payment_method (USD/USDT)
+            logger.info(f"Generando Boxplot Volumen Fiat vs Método de Pago para USD/USDT en '{output_label} - {status_subdir}'...")
+            if not df_usd_pair.empty: # Reusamos df_usd_pair
+                paths_boxplot_volume_usd = plotting.plot_boxplot_by_payment_method(
+                    df_data_pd=df_usd_pair,
+                    value_col_name='TotalPrice_num',
+                    value_col_label="Volumen Fiat",
+                    payment_method_col=payment_method_col_name,
+                    asset_col=asset_col_name,
+                    fiat_col=fiat_col_name,
+                    out_dir=figures_dir_usd,
+                    title_suffix=final_title_suffix,
+                    file_identifier=f"{file_name_suffix_from_cli}_USDT_USD"
+                )
+                add_figure_to_html_list(paths_boxplot_volume_usd, "Distribución de Volumen Fiat por Método de Pago (USDT/USD)", subfolder="usd_usdt")
+            # No es necesario un else aquí
+
+            # 3. Boxplot de Price_num vs Payment_method (UYU)
+            logger.info(f"Generando Boxplot Precio vs Método de Pago para UYU en '{output_label} - {status_subdir}'...")
+            df_uyu_pair = df_completed_for_plots_pandas[
+                (df_completed_for_plots_pandas[asset_col_name] == 'USDT') &
+                (df_completed_for_plots_pandas[fiat_col_name] == 'UYU')
+            ]
+            if not df_uyu_pair.empty:
+                paths_boxplot_price_uyu = plotting.plot_boxplot_by_payment_method(
+                    df_data_pd=df_uyu_pair,
+                    value_col_name='Price_num',
+                    value_col_label="Precio",
+                    payment_method_col=payment_method_col_name,
+                    asset_col=asset_col_name,
+                    fiat_col=fiat_col_name,
+                    out_dir=figures_dir_uyu,
+                    title_suffix=final_title_suffix,
+                    file_identifier=f"{file_name_suffix_from_cli}_USDT_UYU"
+                )
+                add_figure_to_html_list(paths_boxplot_price_uyu, "Distribución de Precio por Método de Pago (USDT/UYU)", subfolder="uyu")
+            else:
+                logger.info(f"No hay datos USDT/UYU para Boxplot Precio vs Método de Pago en '{output_label} - {status_subdir}'.")
+
+            # 4. Boxplot de TotalPrice_num vs Payment_method (UYU)
+            logger.info(f"Generando Boxplot Volumen Fiat vs Método de Pago para UYU en '{output_label} - {status_subdir}'...")
+            if not df_uyu_pair.empty: # Reusamos df_uyu_pair
+                paths_boxplot_volume_uyu = plotting.plot_boxplot_by_payment_method(
+                    df_data_pd=df_uyu_pair,
+                    value_col_name='TotalPrice_num',
+                    value_col_label="Volumen Fiat",
+                    payment_method_col=payment_method_col_name,
+                    asset_col=asset_col_name,
+                    fiat_col=fiat_col_name,
+                    out_dir=figures_dir_uyu,
+                    title_suffix=final_title_suffix,
+                    file_identifier=f"{file_name_suffix_from_cli}_USDT_UYU"
+                )
+                add_figure_to_html_list(paths_boxplot_volume_uyu, "Distribución de Volumen Fiat por Método de Pago (USDT/UYU)", subfolder="uyu")
+            # No es necesario un else aquí
+
+            # 5. Boxplot de TotalPrice_USD_equivalent vs Payment_method (Combinado)
+            if 'TotalPrice_USD_equivalent' in df_completed_for_plots_pandas.columns:
+                logger.info(f"Generando Boxplot Volumen Combinado (USD Eq.) vs Método de Pago en '{output_label} - {status_subdir}'...")
+                paths_boxplot_vol_combined = plotting.plot_boxplot_by_payment_method(
+                    df_data_pd=df_completed_for_plots_pandas, # Usar todos los datos completados
+                    value_col_name='TotalPrice_USD_equivalent',
+                    value_col_label="Volumen Combinado (USD Eq.)",
+                    payment_method_col=payment_method_col_name,
+                    asset_col=None, # Indicar que no es por par asset/fiat específico
+                    fiat_col=None,  # Indicar que no es por par asset/fiat específico
+                    out_dir=figures_dir_combined,
+                    title_suffix=final_title_suffix,
+                    file_identifier=f"{file_name_suffix_from_cli}_Combined_USD_Eq"
+                )
+                add_figure_to_html_list(paths_boxplot_vol_combined, "Distribución de Volumen Combinado (USD Eq.) por Método de Pago", subfolder="combined")
+            else:
+                logger.warning(f"Columna 'TotalPrice_USD_equivalent' no encontrada. No se generará Boxplot de Volumen Combinado por Método de Pago en '{output_label} - {status_subdir}'.")
+        else:
+            logger.warning(f"Columna de método de pago '{payment_method_col_name}' no encontrada. No se generarán Boxplots por Método de Pago en '{output_label} - {status_subdir}'.")
+
+        # Asegurarse de que df_uyu_pair y df_usd_pair estén definidos, incluso si los boxplots no se generaron.
+        # Se inicializan a DataFrames vacíos si no existen en este punto.
+        if 'df_uyu_pair' not in locals():
+            df_uyu_pair = pd.DataFrame()
+            logger.info(f"df_uyu_pair inicializado a DataFrame vacío porque no se definió previamente (posiblemente por falta de columna de método de pago).")
+        
+        if 'df_usd_pair' not in locals(): # Hacemos lo mismo para df_usd_pair por consistencia, aunque el error no fue por este.
+            df_usd_pair = pd.DataFrame()
+            logger.info(f"df_usd_pair inicializado a DataFrame vacío porque no se definió previamente.")
+
+        # --- Nuevo Gráfico: VWAP (Precio Promedio Ponderado por Volumen) a lo largo del Tiempo ---
+        logger.info(f"Generando gráficos VWAP para '{output_label} - {status_subdir}'...")
+        time_col_vwap = config.get('column_names', {}).get('match_time_local_internal', 'Match_time_local')
+        price_col_vwap = config.get('column_names', {}).get('price_num_internal', 'Price_num')
+        qty_col_vwap = config.get('column_names', {}).get('quantity_num_internal', 'Quantity_num')
+        # asset_col_name y fiat_col_name ya están definidos arriba
+
+        required_cols_for_vwap = [time_col_vwap, price_col_vwap, qty_col_vwap, asset_col_name, fiat_col_name]
+        if all(col in df_completed_for_plots_pandas.columns for col in required_cols_for_vwap):
+            # VWAP para USDT/USD
+            paths_vwap_usd = plotting.plot_vwap_over_time(
+                df_data_pd=df_completed_for_plots_pandas, # Ya filtrado por 'Completed'
+                time_col=time_col_vwap,
+                price_col=price_col_vwap,
+                quantity_col=qty_col_vwap,
+                asset_col=asset_col_name,
+                fiat_col=fiat_col_name,
+                out_dir=figures_dir_usd, # Guardar en subdirectorio usd_usdt
+                title_suffix=final_title_suffix,
+                file_identifier=f"{file_name_suffix_from_cli}" # La función ya añade asset/fiat al nombre
+            )
+            add_figure_to_html_list(paths_vwap_usd, "VWAP Diario (USDT/USD)", subfolder="usd_usdt")
+
+            # VWAP para USDT/UYU
+            if not df_uyu_pair.empty: # df_uyu_pair se define arriba para los boxplots
+                paths_vwap_uyu = plotting.plot_vwap_over_time(
+                    df_data_pd=df_uyu_pair, # Pasar el DataFrame ya filtrado para UYU
+                    time_col=time_col_vwap,
+                    price_col=price_col_vwap,
+                    quantity_col=qty_col_vwap,
+                    asset_col=asset_col_name, 
+                    fiat_col=fiat_col_name,
+                    out_dir=figures_dir_uyu, # Guardar en subdirectorio uyu
+                    title_suffix=final_title_suffix,
+                    file_identifier=f"{file_name_suffix_from_cli}" 
+                )
+                add_figure_to_html_list(paths_vwap_uyu, "VWAP Diario (USDT/UYU)", subfolder="uyu")
+            else:
+                logger.info(f"No hay datos USDT/UYU completados para gráfico VWAP en '{output_label} - {status_subdir}'.")
+
+        else:
+            missing_cols_str = ", ".join([col for col in required_cols_for_vwap if col not in df_completed_for_plots_pandas.columns])
+            logger.warning(f"Faltan columnas requeridas para gráfico VWAP en '{output_label} - {status_subdir}': {missing_cols_str}")
+
+        # --- Nuevo Gráfico: Volumen de Compra vs. Venta Mensual ---
+        logger.info(f"Generando gráficos de Volumen Compra vs. Venta Mensual para '{output_label} - {status_subdir}'...")
+        time_col_buysell = config.get('column_names', {}).get('match_time_local_internal', 'Match_time_local')
+        volume_col_buysell_fiat = config.get('column_names', {}).get('total_price_num_internal', 'TotalPrice_num')
+        volume_col_buysell_usd_eq = 'TotalPrice_USD_equivalent'
+        order_type_col_buysell = config.get('column_names', {}).get('order_type_internal', 'order_type') # o 'side_internal' dependiendo de la config
+
+        required_cols_for_buysell = [time_col_buysell, order_type_col_buysell]
+        # Verificar columnas base requeridas
+        if all(col in df_completed_for_plots_pandas.columns for col in required_cols_for_buysell):
+            # 1. Compra vs. Venta para USD/USDT (usando TotalPrice_num)
+            if volume_col_buysell_fiat in df_usd_pair.columns: # df_usd_pair ya está filtrado por asset y fiat USD
+                path_bs_vol_usd = plotting.plot_buy_sell_volume_over_time(
+                    df_data_pd=df_usd_pair, 
+                    time_col=time_col_buysell,
+                    volume_col=volume_col_buysell_fiat,
+                    order_type_col=order_type_col_buysell,
+                    out_dir=figures_dir_usd,
+                    volume_col_label="Volumen Fiat (USD/USDT)",
+                    title_suffix=f"{final_title_suffix} (USDT/USD)",
+                    file_identifier=f"{file_name_suffix_from_cli}_USDT_USD",
+                    specific_plot_title=f"Volumen Mensual Compra vs. Venta (USD/USDT){final_title_suffix}"
+                )
+                add_figure_to_html_list(path_bs_vol_usd, "Volumen Mensual Compra vs. Venta (USD/USDT)", subfolder="usd_usdt")
+            else:
+                logger.warning(f"Columna de volumen fiat '{volume_col_buysell_fiat}' no en df_usd_pair para Compra/Venta en '{output_label} - {status_subdir}'.")
+
+            # 2. Compra vs. Venta para UYU (usando TotalPrice_num)
+            if volume_col_buysell_fiat in df_uyu_pair.columns: # df_uyu_pair ya está filtrado por asset y fiat UYU
+                path_bs_vol_uyu = plotting.plot_buy_sell_volume_over_time(
+                    df_data_pd=df_uyu_pair,
+                    time_col=time_col_buysell,
+                    volume_col=volume_col_buysell_fiat,
+                    order_type_col=order_type_col_buysell,
+                    out_dir=figures_dir_uyu,
+                    volume_col_label="Volumen Fiat (UYU)",
+                    title_suffix=f"{final_title_suffix} (USDT/UYU)",
+                    file_identifier=f"{file_name_suffix_from_cli}_USDT_UYU",
+                    specific_plot_title=f"Volumen Mensual Compra vs. Venta (UYU){final_title_suffix}"
+                )
+                add_figure_to_html_list(path_bs_vol_uyu, "Volumen Mensual Compra vs. Venta (UYU)", subfolder="uyu")
+            else:
+                logger.warning(f"Columna de volumen fiat '{volume_col_buysell_fiat}' no en df_uyu_pair para Compra/Venta en '{output_label} - {status_subdir}'.")
+
+            # 3. Compra vs. Venta Combinado (usando TotalPrice_USD_equivalent)
+            if volume_col_buysell_usd_eq in df_completed_for_plots_pandas.columns:
+                path_bs_vol_combined = plotting.plot_buy_sell_volume_over_time(
+                    df_data_pd=df_completed_for_plots_pandas, # Usar todos los datos completados
+                    time_col=time_col_buysell,
+                    volume_col=volume_col_buysell_usd_eq,
+                    order_type_col=order_type_col_buysell,
+                    out_dir=figures_dir_combined,
+                    volume_col_label="Volumen (USD Equivalente)",
+                    title_suffix=f"{final_title_suffix} (Combinado USD Eq.)",
+                    file_identifier=f"{file_name_suffix_from_cli}_Combined_USD_Eq",
+                    specific_plot_title=f"Volumen Mensual Compra vs. Venta (Combinado USD Eq.){final_title_suffix}"
+                )
+                add_figure_to_html_list(path_bs_vol_combined, "Volumen Mensual Compra vs. Venta (Combinado USD Eq.)", subfolder="combined")
+            else:
+                logger.warning(f"Columna de volumen '{volume_col_buysell_usd_eq}' no encontrada para Compra/Venta Combinado en '{output_label} - {status_subdir}'.")
+        else:
+            missing_cols_bs_str = ", ".join([col for col in required_cols_for_buysell if col not in df_completed_for_plots_pandas.columns])
+            logger.warning(f"Faltan columnas base ({missing_cols_bs_str}) para gráficos de Volumen Compra vs. Venta en '{output_label} - {status_subdir}'.")
+
+        # --- Nuevo Gráfico: Scatter de Correlación Precio vs. Volumen Total Fiat ---
+        logger.info(f"Generando gráficos de Scatter Precio vs. Volumen Total Fiat para '{output_label} - {status_subdir}'...")
+        price_col_scatter = config.get('column_names', {}).get('price_num_internal', 'Price_num')
+        total_fiat_col_scatter = config.get('column_names', {}).get('total_price_num_internal', 'TotalPrice_num')
+        total_fiat_usd_eq_col_scatter = 'TotalPrice_USD_equivalent'
+        order_type_col_scatter = config.get('column_names', {}).get('order_type_internal', 'order_type')
+        # asset_col_name y fiat_col_name ya están definidos
+
+        required_cols_for_scatter = [price_col_scatter, order_type_col_scatter, asset_col_name, fiat_col_name]
+
+        if all(col in df_completed_for_plots_pandas.columns for col in required_cols_for_scatter):
+            # 1. Scatter para USDT/USD (usando TotalPrice_num)
+            if total_fiat_col_scatter in df_usd_pair.columns:
+                path_scatter_usd = plotting.plot_price_vs_total_fiat_scatter(
+                    df_data_pd=df_usd_pair, 
+                    price_col=price_col_scatter,
+                    total_fiat_col=total_fiat_col_scatter,
+                    order_type_col=order_type_col_scatter,
+                    asset_col_for_grouping=asset_col_name, # Usado para el título y file_identifier en la función
+                    fiat_col_for_grouping=fiat_col_name,
+                    out_dir=figures_dir_usd,
+                    x_axis_label=f"Precio USDT (en USD)",
+                    y_axis_label=f"Volumen Total Transacción (USD)",
+                    title_suffix=f"{final_title_suffix} (USDT/USD)",
+                    file_identifier=f"{file_name_suffix_from_cli}_USDT_USD",
+                    specific_plot_title=f"Precio vs. Volumen Total (USDT/USD){final_title_suffix}"
+                )
+                add_figure_to_html_list(path_scatter_usd, "Scatter Precio vs. Volumen Total (USDT/USD)", subfolder="usd_usdt")
+            else:
+                logger.warning(f"Columna '{total_fiat_col_scatter}' no en df_usd_pair para Scatter en '{output_label} - {status_subdir}'.")
+
+            # 2. Scatter para USDT/UYU (usando TotalPrice_num)
+            if total_fiat_col_scatter in df_uyu_pair.columns:
+                path_scatter_uyu = plotting.plot_price_vs_total_fiat_scatter(
+                    df_data_pd=df_uyu_pair, 
+                    price_col=price_col_scatter,
+                    total_fiat_col=total_fiat_col_scatter,
+                    order_type_col=order_type_col_scatter,
+                    asset_col_for_grouping=asset_col_name,
+                    fiat_col_for_grouping=fiat_col_name,
+                    out_dir=figures_dir_uyu,
+                    x_axis_label=f"Precio USDT (en UYU)",
+                    y_axis_label=f"Volumen Total Transacción (UYU)",
+                    title_suffix=f"{final_title_suffix} (USDT/UYU)",
+                    file_identifier=f"{file_name_suffix_from_cli}_USDT_UYU",
+                    specific_plot_title=f"Precio vs. Volumen Total (USDT/UYU){final_title_suffix}"
+                )
+                add_figure_to_html_list(path_scatter_uyu, "Scatter Precio vs. Volumen Total (USDT/UYU)", subfolder="uyu")
+            else:
+                logger.warning(f"Columna '{total_fiat_col_scatter}' no en df_uyu_pair para Scatter en '{output_label} - {status_subdir}'.")
+
+            # 3. Scatter Combinado (Precio USDT vs TotalPrice_USD_equivalent, coloreado por fiat_type original)
+            if total_fiat_usd_eq_col_scatter in df_completed_for_plots_pandas.columns and price_col_scatter in df_completed_for_plots_pandas.columns:
+                # Para el combinado, queremos Precio de USDT vs. el Volumen Total en USD Equivalente.
+                # Filtramos donde el asset es USDT para que el price_col_scatter (Precio USDT) tenga sentido.
+                df_usdt_completed = df_completed_for_plots_pandas[df_completed_for_plots_pandas[asset_col_name] == 'USDT']
+                if not df_usdt_completed.empty:
+                    path_scatter_combined = plotting.plot_price_vs_total_fiat_scatter(
+                        df_data_pd=df_usdt_completed,
+                        price_col=price_col_scatter, # Precio del USDT
+                        total_fiat_col=total_fiat_usd_eq_col_scatter, # Volumen en USD eq.
+                        order_type_col=order_type_col_scatter, # Usar order_type para el hue primario si hue_col_for_combined no se especifica o no es útil.
+                                                                # Opcionalmente, se podría pasar fiat_col_name a hue_col_for_combined para ver de qué fiat original vino la transacción.
+                        asset_col_for_grouping=None, # Es combinado, no agrupamos por asset/fiat aquí
+                        fiat_col_for_grouping=None,
+                        out_dir=figures_dir_combined,
+                        x_axis_label=f"Precio USDT",
+                        y_axis_label=f"Volumen Total Transacción (USD Equivalente)",
+                        title_suffix=f"{final_title_suffix} (Combinado)",
+                        file_identifier=f"{file_name_suffix_from_cli}_Combined_USD_Eq",
+                        specific_plot_title=f"Precio USDT vs. Volumen Total (Combinado USD Eq.){final_title_suffix}",
+                        hue_col_for_combined=fiat_col_name # Colorear por el fiat original (USD o UYU)
+                    )
+                    add_figure_to_html_list(path_scatter_combined, "Scatter Precio USDT vs. Volumen Total (Combinado USD Eq.)", subfolder="combined")
+                else:
+                    logger.info(f"No hay datos de USDT completados para Scatter Combinado en '{output_label} - {status_subdir}'.")
+            else:
+                logger.warning(f"Columnas '{total_fiat_usd_eq_col_scatter}' o '{price_col_scatter}' no encontradas para Scatter Combinado en '{output_label} - {status_subdir}'.")
+        else:
+            missing_cols_scatter_str = ", ".join([col for col in required_cols_for_scatter if col not in df_completed_for_plots_pandas.columns])
+            logger.warning(f"Faltan columnas base ({missing_cols_scatter_str}) para gráficos Scatter Precio vs Volumen en '{output_label} - {status_subdir}'.")
+
+        # --- Nuevo Gráfico: Profundidad de Mercado Simplificado ---
+        logger.info(f"Generando gráficos de Profundidad de Mercado Simplificado para '{output_label} - {status_subdir}'...")
+        price_col_md = config.get('column_names', {}).get('price_num_internal', 'Price_num')
+        qty_col_md = config.get('column_names', {}).get('quantity_num_internal', 'Quantity_num')
+        order_type_col_md = config.get('column_names', {}).get('order_type_internal', 'order_type')
+        # asset_col_name y fiat_col_name ya están definidos
+
+        required_cols_for_md = [price_col_md, qty_col_md, order_type_col_md, asset_col_name, fiat_col_name]
+        if all(col in df_completed_for_plots_pandas.columns for col in required_cols_for_md):
+            # La función plot_simplified_market_depth itera internamente por pares (asset, fiat)
+            # por lo que una sola llamada con df_completed_for_plots_pandas generaría para todos los pares.
+            # Sin embargo, para controlar el directorio de salida (figures_dir_usd, figures_dir_uyu),
+            # es mejor pasar DataFrames ya filtrados por el par principal o que la función acepte un out_dir dinámico.
+            # Dado que la función actual toma un solo out_dir, le pasaremos los DFs filtrados.
+
+            # Profundidad para USDT/USD
+            if not df_usd_pair.empty:
+                paths_md_usd = plotting.plot_simplified_market_depth(
+                    df_data_pd=df_usd_pair,
+                    price_col=price_col_md,
+                    quantity_col=qty_col_md,
+                    order_type_col=order_type_col_md,
+                    asset_col=asset_col_name,
+                    fiat_col=fiat_col_name,
+                    out_dir=figures_dir_usd,
+                    title_suffix=f"{final_title_suffix} (USDT/USD)",
+                    file_identifier=f"{file_name_suffix_from_cli}_USDT_USD"
+                )
+                add_figure_to_html_list(paths_md_usd, "Profundidad de Mercado Simplificada (USDT/USD)", subfolder="usd_usdt")
+            else:
+                logger.info(f"No hay datos USDT/USD completados para gráfico de Profundidad de Mercado en '{output_label} - {status_subdir}'.")
+
+            # Profundidad para USDT/UYU
+            if not df_uyu_pair.empty:
+                paths_md_uyu = plotting.plot_simplified_market_depth(
+                    df_data_pd=df_uyu_pair,
+                    price_col=price_col_md,
+                    quantity_col=qty_col_md,
+                    order_type_col=order_type_col_md,
+                    asset_col=asset_col_name,
+                    fiat_col=fiat_col_name,
+                    out_dir=figures_dir_uyu,
+                    title_suffix=f"{final_title_suffix} (USDT/UYU)",
+                    file_identifier=f"{file_name_suffix_from_cli}_USDT_UYU"
+                )
+                add_figure_to_html_list(paths_md_uyu, "Profundidad de Mercado Simplificada (USDT/UYU)", subfolder="uyu")
+            else:
+                logger.info(f"No hay datos USDT/UYU completados para gráfico de Profundidad de Mercado en '{output_label} - {status_subdir}'.")
+        else:
+            missing_cols_md_str = ", ".join([col for col in required_cols_for_md if col not in df_completed_for_plots_pandas.columns])
+            logger.warning(f"Faltan columnas ({missing_cols_md_str}) para gráficos de Profundidad de Mercado en '{output_label} - {status_subdir}'.")
+
         # --- Activity Heatmap --- 
         path_heatmap = None
         logger.info(f"[HEATMAP_DEBUG] Verificando para heatmap en '{output_label} - {status_subdir}'.")
@@ -515,10 +1087,10 @@ def save_outputs(
                 else:
                     logger.info(f"Generando heatmap de actividad para '{output_label} - {status_subdir}' ({len(df_to_plot_from_pandas)} filas).")
                     try:
-                        path_heatmap = plotting.plot_activity_heatmap(df_to_plot_from_pandas, figures_dir, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli) 
+                        path_heatmap = plotting.plot_activity_heatmap(df_to_plot_from_pandas, figures_dir_general, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli) 
                     except Exception as e: 
                         logger.error(f"Error en plot_activity_heatmap para '{output_label} - {status_subdir}': {e}")
-                    add_figure_to_html_list(path_heatmap, "Heatmap de Actividad")
+                    add_figure_to_html_list(path_heatmap, "Heatmap de Actividad", subfolder="general")
         else:
             logger.info(f"Omitiendo heatmap de actividad para '{output_label} - {status_subdir}' ya que df_to_plot_from_pandas está vacío.")
     else:
@@ -533,14 +1105,12 @@ def save_outputs(
     #         logger.info(f"Generando gráfico de análisis de comisiones para '{output_label} - {status_subdir}'.")
     #         fees_stats_pd_for_plot = fees_stats_pd.set_index(asset_type_col_name_fees)
     #         try:
-    #             path_fees = plotting.plot_fees_analysis(fees_stats_pd_for_plot, figures_dir, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli) 
+    #             path_fees = plotting.plot_fees_analysis(fees_stats_pd_for_plot, figures_dir_general, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli) 
     #         except Exception as e: 
     #             logger.error(f"Error en plot_fees_analysis: {e}")
-    #         add_figure_to_html_list(path_fees, "Análisis de Comisiones")
+    #         add_figure_to_html_list(path_fees, "Análisis de Comisiones", subfolder="general")
     #     else:
     #         logger.warning(f"Columna '{asset_type_col_name_fees}' no encontrada en fees_stats_pd para ploteo en '{output_label} - {status_subdir}'. DF columns: {fees_stats_pd.columns}")
-    # else:
-    #     logger.info(f"No hay datos de fees_stats para graficar en '{output_label} - {status_subdir}'.")
 
     # --- HTML Report Generation --- 
     if template:

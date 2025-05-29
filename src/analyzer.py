@@ -83,14 +83,52 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
                 pl.when(price_correction_condition)
                 .then(pl.col('Price_num') / 1000)
                 .otherwise(pl.col('Price_num'))
-                .alias('Price_num') # Sobrescribe la columna Price_num
+                .alias('Price_num') 
             )
             logger.info(f"Corrección de Price_num para USDT/USD aplicada.")
         else:
             logger.info("No se encontraron filas USDT/USD que necesiten corrección de Price_num (Price_num > 10).")
     else:
-        logger.info("No se aplicó el parche de corrección de Price_num para USDT/USD porque faltan una o más columnas requeridas (asset_type, fiat_type, Price_num).") # Actualizado mensaje de log
+        logger.info("No se aplicó el parche de corrección de Price_num para USDT/USD porque faltan una o más columnas requeridas (asset_type, fiat_type, Price_num).") 
     # --- FIN: Parche para corregir Price_num en USDT/USD BUY ---
+
+    # --- INICIO: Crear TotalPrice_USD_equivalent ---
+    logger.info("Creando columna 'TotalPrice_USD_equivalent' para volúmenes combinados...")
+    if ('TotalPrice_num' in df_processed.columns and
+        fiat_type_col in df_processed.columns and
+        asset_type_col in df_processed.columns and
+        'Price_num' in df_processed.columns):
+
+        df_processed = df_processed.with_columns(
+            pl.when(pl.col(fiat_type_col).is_in(["USD", "USDT"]))
+            .then(pl.col('TotalPrice_num'))
+            .when(
+                (pl.col(fiat_type_col) == "UYU") &
+                (pl.col(asset_type_col) == "USDT") &
+                (pl.col('Price_num').is_not_null()) &
+                (pl.col('Price_num') != 0) # Evitar división por cero
+            )
+            .then(pl.col('TotalPrice_num') / pl.col('Price_num'))
+            .otherwise(None) # Para otras combinaciones (ej. UYU con BTC) o UYU/USDT con Price_num cero/nulo
+            .alias('TotalPrice_USD_equivalent')
+        )
+        logger.info("Columna 'TotalPrice_USD_equivalent' creada.")
+        
+        null_equivalent_count = df_processed.filter(pl.col('TotalPrice_USD_equivalent').is_null()).height
+        if null_equivalent_count > 0:
+            logger.info(f"  {null_equivalent_count} filas tienen 'TotalPrice_USD_equivalent' nulo (posibles casos UYU no USDT, o Price_num cero/nulo).")
+        
+        uyu_not_converted_df = df_processed.filter(
+            (pl.col(fiat_type_col) == "UYU") &
+            (pl.col('TotalPrice_USD_equivalent').is_null())
+        )
+        if not uyu_not_converted_df.is_empty():
+            logger.info(f"  Se encontraron {uyu_not_converted_df.height} filas UYU no convertidas a USD equivalente. Ejemplos de asset_type: {uyu_not_converted_df.group_by(asset_type_col).agg(pl.count()).sort('count', descending=True).head(3)}")
+
+    else:
+        logger.warning("No se pudo crear 'TotalPrice_USD_equivalent' porque faltan una o más columnas requeridas (TotalPrice_num, fiat_type, asset_type, Price_num). Se creará con nulos.")
+        df_processed = df_processed.with_columns(pl.lit(None, dtype=pl.Float64).alias('TotalPrice_USD_equivalent'))
+    # --- FIN: Crear TotalPrice_USD_equivalent ---
 
     if 'MakerFee_num' not in df_processed.columns:
         df_processed = df_processed.with_columns(pl.lit(0.0, dtype=pl.Float64).alias('MakerFee_num'))

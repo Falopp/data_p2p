@@ -7,7 +7,7 @@ from matplotlib.figure import Figure
 import plotly.graph_objects as go
 import polars as pl
 import plotly.express as px
-from . import utils # Para formatear números, etc.
+from . import utils
 import matplotlib.ticker as mticker
 from typing import Union, List, Any, Optional
 
@@ -92,12 +92,12 @@ def plot_monthly(monthly_fiat: pd.DataFrame, out_dir: str, title_suffix: str = "
             current_fiat_label = str(current_fiat)
         elif current_fiat is not None and monthly_fiat.index.name == fiat_type_col_internal:
              df_plot_full = monthly_fiat[monthly_fiat.index == current_fiat]
-             plot_title_fiat_part = f" para {current_fiat}" # Asegurar que esto se setea
-             current_fiat_label = str(current_fiat)       # Asegurar que esto se setea
+             plot_title_fiat_part = f" para {current_fiat}"
+             current_fiat_label = str(current_fiat)
         elif current_fiat is not None and isinstance(monthly_fiat.index, pd.MultiIndex) and fiat_type_col_internal in monthly_fiat.index.names:
-             df_plot_full = monthly_fiat[monthly_fiat.index.get_level_values(fiat_type_internal) == current_fiat]
-             plot_title_fiat_part = f" para {current_fiat}" # Asegurar que esto se setea
-             current_fiat_label = str(current_fiat)       # Asegurar que esto se setea
+             df_plot_full = monthly_fiat[monthly_fiat.index.get_level_values(fiat_type_col_internal) == current_fiat]
+             plot_title_fiat_part = f" para {current_fiat}"
+             current_fiat_label = str(current_fiat)
         
         if df_plot_full.empty:
             continue
@@ -120,7 +120,6 @@ def plot_monthly(monthly_fiat: pd.DataFrame, out_dir: str, title_suffix: str = "
         
         x_values_source = df_plot_full.index if df_plot_full.index.name == year_month_col_internal else df_plot_full[year_month_col_internal]
         
-        # DONE: Convertir x_values_plot a datetime para un eje X temporal correcto
         try:
             # Intentar convertir a datetime, asumiendo formato como "YYYY-MM" o similar que pd.to_datetime pueda inferir.
             # Si ya es datetime (p.ej. PeriodIndex convertido a timestamp), esto no debería dañarlo.
@@ -148,8 +147,8 @@ def plot_monthly(monthly_fiat: pd.DataFrame, out_dir: str, title_suffix: str = "
                 df_temp_plot = df_plot_full.assign(x_plot_str_col=x_values_plot_str).sort_values(by='x_plot_str_col')
                 
                 # Usar índices numéricos para el ploteo si x_values_plot_str es el eje X
-                x_axis_for_plot = range(len(df_temp_plot)) # Usar rango numérico
-                x_tick_labels_for_plot = df_temp_plot['x_plot_str_col'].tolist() # Etiquetas string para los ticks
+                x_axis_for_plot = range(len(df_temp_plot))
+                x_tick_labels_for_plot = df_temp_plot['x_plot_str_col'].tolist()
                 # Guardar las etiquetas para usarlas después con plt.xticks()
                 _use_numeric_x_with_str_labels = True
 
@@ -157,8 +156,8 @@ def plot_monthly(monthly_fiat: pd.DataFrame, out_dir: str, title_suffix: str = "
             logger.error(f"Error crítico convirtiendo eje X a datetime en plot_monthly: {e_datetime_conv}. Usando strings.")
             df_temp_plot = df_plot_full.assign(x_plot_str_col=x_values_source.astype(str)).sort_values(by='x_plot_str_col')
             # Usar índices numéricos para el ploteo si x_values_source.astype(str) es el eje X
-            x_axis_for_plot = range(len(df_temp_plot)) # Usar rango numérico
-            x_tick_labels_for_plot = df_temp_plot['x_plot_str_col'].tolist() # Etiquetas string para los ticks
+            x_axis_for_plot = range(len(df_temp_plot))
+            x_tick_labels_for_plot = df_temp_plot['x_plot_str_col'].tolist()
             _use_numeric_x_with_str_labels = True
 
         # Inicializar _use_numeric_x_with_str_labels si no se definió en los bloques try/except
@@ -549,18 +548,30 @@ def plot_fees_analysis(fees_stats_df: pd.DataFrame, out_dir: str, title_suffix: 
         return None 
 
 # DONE: 2.1 Sankey Fiat -> Activo
-def plot_sankey_fiat_asset(df_data: pl.DataFrame, out_dir: str, title_suffix: str = "", file_identifier: str = "_general") -> str | None:
+def plot_sankey_fiat_asset(df_data: pl.DataFrame, 
+                           out_dir: str, 
+                           title_suffix: str = "", 
+                           file_identifier: str = "_general",
+                           value_col_name: str | None = None
+                           ) -> str | None:
     logger.info(f"Iniciando generación de gráfico Sankey Fiat -> Activo{title_suffix}.")
     
-    fiat_col = 'fiat_type'; asset_col = 'asset_type'; value_col = 'TotalPrice_num'
-    df_agg = df_data.group_by([fiat_col, asset_col]).agg(pl.sum(value_col).alias(value_col))
+    fiat_col = 'fiat_type'
+    asset_col = 'asset_type'
+    # Usar value_col_name si se proporciona, de lo contrario, usar 'TotalPrice_num' por defecto
+    actual_value_col = value_col_name if value_col_name else 'TotalPrice_num'
+
+    if actual_value_col not in df_data.columns:
+        logger.error(f"Columna de valor '{actual_value_col}' no encontrada en los datos para Sankey. Columnas disponibles: {df_data.columns}")
+        return None
+
+    df_agg = df_data.group_by([fiat_col, asset_col]).agg(pl.sum(actual_value_col).alias(actual_value_col))
     if df_agg.is_empty():
-        logger.info(f"No hay datos agregados para generar el gráfico Sankey{title_suffix}.")
+        logger.info(f"No hay datos agregados para generar el gráfico Sankey con la columna '{actual_value_col}'{title_suffix}.")
         return None
     
     sankey_agg_pd = df_agg.to_pandas() 
 
-    # DONE: Corregir pd.unique para evitar FutureWarning
     # Combinar las dos listas de nodos (origen y destino)
     combined_node_list = sankey_agg_pd[fiat_col].tolist() + sankey_agg_pd[asset_col].tolist()
     # Convertir la lista combinada a una Serie de Pandas antes de pd.unique()
@@ -570,7 +581,7 @@ def plot_sankey_fiat_asset(df_data: pl.DataFrame, out_dir: str, title_suffix: st
     # source_indices = sankey_agg_pd[fiat_col].map_elements(lambda x: node_map[x], return_dtype=pl.Int64).to_list()
     source_indices = sankey_agg_pd[fiat_col].map(node_map).tolist()
     target_indices = sankey_agg_pd[asset_col].map(node_map).tolist()
-    values = sankey_agg_pd[value_col].tolist()
+    values = sankey_agg_pd[actual_value_col].tolist()
 
     fig = go.Figure(data=[go.Sankey(
         node=dict(
@@ -1059,3 +1070,697 @@ def plot_volume_vs_price_scatter(df_completed: pd.DataFrame, out_dir: str, title
             plt.savefig(file_path, bbox_inches='tight'); saved_paths.append(file_path); plt.close()
         except Exception as e: logger.error(f"Error al guardar el gráfico {file_path}: {e}"); plt.close()
     return saved_paths
+
+# --- Nueva función para Boxplots por Método de Pago ---
+def plot_boxplot_by_payment_method(
+    df_data_pd: pd.DataFrame, 
+    value_col_name: str,
+    value_col_label: str, # Etiqueta legible para el eje Y (ej: "Precio", "Volumen Total")
+    payment_method_col: str,
+    asset_col: str,
+    fiat_col: str,
+    out_dir: str, 
+    title_suffix: str = "", 
+    file_identifier: str = "_general",
+    top_n_methods: int = 15 # Mostrar los N métodos de pago más comunes
+) -> list[str]:
+    saved_paths = []
+    logger.info(f"Iniciando generación de Boxplots: '{value_col_label}' vs Método de Pago{title_suffix}.")
+
+    required_cols = [value_col_name, payment_method_col, asset_col, fiat_col]
+    if not all(col in df_data_pd.columns for col in required_cols):
+        missing = [col for col in required_cols if col not in df_data_pd.columns]
+        logger.warning(f"Faltan columnas ({', '.join(missing)}) para Boxplot '{value_col_label}' vs Método de Pago{title_suffix}. No se generarán gráficos.")
+        return saved_paths
+
+    # Asegurar que la columna de valor sea numérica
+    if not pd.api.types.is_numeric_dtype(df_data_pd[value_col_name]):
+        logger.warning(f"La columna de valor '{value_col_name}' no es numérica. No se pueden generar boxplots.{title_suffix}")
+        return saved_paths
+        
+    df_plot_base = df_data_pd.dropna(subset=[value_col_name, payment_method_col])
+    if df_plot_base.empty:
+        logger.info(f"No hay datos válidos (después de eliminar NaNs en valor y método de pago) para Boxplot '{value_col_label}' vs Método de Pago{title_suffix}.")
+        return saved_paths
+
+    # Determinar si estamos graficando para un par asset/fiat específico o para datos combinados (USD equivalent)
+    # Si asset_col y fiat_col son None, asumimos que es un gráfico combinado con una columna como 'TotalPrice_USD_equivalent'
+    # y no necesitamos agrupar por asset/fiat.
+
+    if asset_col and fiat_col:
+        grouped_by_pair = df_plot_base.groupby([asset_col, fiat_col])
+        iterator = grouped_by_pair
+        is_combined_plot = False
+    else: # Es un gráfico combinado (ej. TotalPrice_USD_equivalent)
+        iterator = [(("Combined", "USD Equivalent"), df_plot_base)] # Crear un iterador de un solo grupo
+        is_combined_plot = True
+
+
+    for (current_asset, current_fiat), group_df in iterator:
+        if group_df.empty or group_df[payment_method_col].nunique() < 1:
+            logger.info(f"Omitiendo boxplot para {current_asset}/{current_fiat} (datos insuficientes o sin métodos de pago válidos).{title_suffix}")
+            continue
+
+        # Limitar el número de métodos de pago a mostrar
+        common_methods = group_df[payment_method_col].value_counts().nlargest(top_n_methods).index
+        df_plot_final = group_df[group_df[payment_method_col].isin(common_methods)]
+
+        if df_plot_final.empty:
+            logger.info(f"Omitiendo boxplot para {current_asset}/{current_fiat} (sin datos tras filtrar por Top {top_n_methods} métodos).{title_suffix}")
+            continue
+        
+        num_methods = df_plot_final[payment_method_col].nunique()
+        fig_width = max(12, num_methods * 0.8) # Ajustar ancho de la figura según cantidad de métodos
+        plt.figure(figsize=(fig_width, 8))
+        
+        order = sorted(df_plot_final[payment_method_col].unique())
+
+        sns.boxplot(
+            data=df_plot_final, 
+            x=payment_method_col, 
+            y=value_col_name,
+            # hue=payment_method_col, # No es necesario el hue si ya estamos en el eje X
+            palette="muted", 
+            order=order,
+            legend=False
+        )
+        
+        if is_combined_plot:
+            plot_title = f"Distribución de {value_col_label} por Método de Pago (Top {top_n_methods}){title_suffix}"
+            y_axis_label = f"{value_col_label}"
+            file_name_prefix = f"boxplot_{value_col_name}_payment_method_combined"
+        else:
+            plot_title = f"Distribución de {value_col_label} ({current_asset}/{current_fiat}) por Método de Pago (Top {top_n_methods}){title_suffix}"
+            y_axis_label = f"{value_col_label} de {current_asset} en {current_fiat}"
+            file_name_prefix = f"boxplot_{value_col_name}_payment_method_{str(current_asset).lower()}_{str(current_fiat).lower()}"
+
+        plt.title(plot_title, fontsize=15)
+        plt.xlabel("Método de Pago", fontsize=12)
+        plt.ylabel(y_axis_label, fontsize=12)
+        plt.xticks(rotation=45, ha="right", fontsize=10)
+        plt.yticks(fontsize=10)
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+        plt.tight_layout()
+
+        file_name = f"{file_name_prefix}{file_identifier}.png"
+        file_path = os.path.join(out_dir, file_name)
+        
+        try:
+            plt.savefig(file_path)
+            logger.info(f"Boxplot ({current_asset}/{current_fiat} - {value_col_label}) guardado en: {file_path}")
+            saved_paths.append(file_path)
+            plt.close()
+        except Exception as e:
+            logger.error(f"Error al guardar Boxplot ({current_asset}/{current_fiat} - {value_col_label}) {file_path}: {e}")
+            plt.close()
+            
+    return saved_paths
+
+# --- Fin de la nueva función ---
+
+# --- Nueva función para Análisis de Completitud de Órdenes a lo largo del Tiempo ---
+def plot_order_status_over_time(
+    df_all_statuses_pd: pd.DataFrame,
+    time_col: str,
+    status_col: str,
+    out_dir: str,
+    title_suffix: str = "",
+    file_identifier: str = "_general"
+) -> str | None:
+    logger.info(f"Iniciando generación de gráfico de Completitud de Órdenes a lo largo del Tiempo{title_suffix}.")
+
+    required_cols = [time_col, status_col]
+    if not all(col in df_all_statuses_pd.columns for col in required_cols):
+        missing = [col for col in required_cols if col not in df_all_statuses_pd.columns]
+        logger.warning(f"Faltan columnas ({', '.join(missing)}) para gráfico de Completitud de Órdenes{title_suffix}. No se generará.")
+        return None
+
+    if df_all_statuses_pd[required_cols].isna().any().any():
+        logger.warning(f"Hay valores nulos en columnas '{time_col}' o '{status_col}'. Se intentará continuar filtrando esos nulos.")
+        df_plot_data = df_all_statuses_pd.dropna(subset=required_cols).copy()
+    else:
+        df_plot_data = df_all_statuses_pd.copy()
+        
+    if not pd.api.types.is_datetime64_any_dtype(df_plot_data[time_col]):
+        try:
+            df_plot_data[time_col] = pd.to_datetime(df_plot_data[time_col])
+        except Exception as e:
+            logger.error(f"No se pudo convertir la columna de tiempo '{time_col}' a datetime: {e}. No se generará gráfico.")
+            return None
+            
+    if df_plot_data.empty:
+        logger.info(f"No hay datos válidos para gráfico de Completitud de Órdenes{title_suffix}.")
+        return None
+
+    # Crear una columna 'YearMonth' para agrupar
+    df_plot_data['YearMonth'] = df_plot_data[time_col].dt.to_period('M')
+
+    # Contar ocurrencias de cada estado por mes
+    status_counts_monthly = df_plot_data.groupby(['YearMonth', status_col]).size().unstack(fill_value=0)
+
+    if status_counts_monthly.empty:
+        logger.info(f"No hay datos después de agrupar por mes y estado para Completitud de Órdenes{title_suffix}.")
+        return None
+
+    # Calcular porcentajes
+    status_percentages_monthly = status_counts_monthly.apply(lambda x: x / x.sum() * 100, axis=1)
+    
+    # Asegurar que el índice sea de tipo string para evitar problemas con Matplotlib/Seaborn si es PeriodIndex
+    status_percentages_monthly.index = status_percentages_monthly.index.astype(str)
+
+
+    plt.figure(figsize=(15, 8))
+    
+    # Colores (puedes personalizar esto)
+    # Tratar de usar una paleta consistente si es posible o definir colores específicos por estado
+    status_order = ['Completed', 'Cancelled', 'Appealing'] # Definir un orden deseado para el stack
+    # Filtrar columnas para que solo estén las presentes en el DF y en el orden deseado
+    cols_to_plot = [s for s in status_order if s in status_percentages_monthly.columns]
+    # Añadir otras columnas que no estén en status_order al final
+    other_cols = [s for s in status_percentages_monthly.columns if s not in cols_to_plot]
+    final_plot_order = cols_to_plot + other_cols
+    
+    # Crear el gráfico de áreas apiladas
+    status_percentages_monthly[final_plot_order].plot(kind='area', stacked=True, colormap='viridis', alpha=0.8)
+
+    plt.title(f"Distribución Porcentual de Estados de Órdenes por Mes{title_suffix}", fontsize=16)
+    plt.xlabel("Mes (Año-Mes)", fontsize=12)
+    plt.ylabel("Porcentaje de Órdenes (%)", fontsize=12)
+    plt.ylim(0, 100) # Asegurar que el eje Y vaya de 0 a 100%
+    plt.xticks(rotation=45, ha="right", fontsize=10)
+    plt.yticks(fontsize=10)
+    
+    # Mover la leyenda fuera del gráfico
+    plt.legend(title="Estado de Orden", bbox_to_anchor=(1.05, 1), loc='upper left')
+    
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.tight_layout(rect=[0, 0, 0.85, 1]) # Ajustar layout para dar espacio a la leyenda
+
+    file_name = f"order_status_over_time_percentage{file_identifier}.png"
+    file_path = os.path.join(out_dir, file_name)
+
+    try:
+        plt.savefig(file_path)
+        logger.info(f"Gráfico de Completitud de Órdenes por Mes guardado en: {file_path}")
+        plt.close()
+        return file_path
+    except Exception as e:
+        logger.error(f"Error al guardar gráfico de Completitud de Órdenes por Mes {file_path}: {e}")
+        plt.close()
+        return None
+
+# --- Fin de la nueva función ---
+
+# --- Nueva función para Volumen por Día de la Semana ---
+def plot_volume_by_day_of_week(
+    df_data_pd: pd.DataFrame,
+    time_col: str,
+    volume_col: str,
+    volume_col_label: str, # Ej: "Volumen Total (USD)", "Volumen Total (USD Equivalent)"
+    out_dir: str,
+    title_suffix: str = "",
+    file_identifier: str = "_general",
+    specific_plot_title: str | None = None # Título específico si se quiere sobreescribir el default
+) -> str | None:
+    logger.info(f"Iniciando generación de gráfico de Volumen por Día de la Semana ({volume_col_label}){title_suffix}.")
+
+    required_cols = [time_col, volume_col]
+    if not all(col in df_data_pd.columns for col in required_cols):
+        missing = [col for col in required_cols if col not in df_data_pd.columns]
+        logger.warning(f"Faltan columnas ({', '.join(missing)}) para gráfico de Volumen por Día de la Semana{title_suffix}. No se generará.")
+        return None
+
+    df_plot_data = df_data_pd.dropna(subset=required_cols).copy()
+
+    if not pd.api.types.is_datetime64_any_dtype(df_plot_data[time_col]):
+        try:
+            df_plot_data[time_col] = pd.to_datetime(df_plot_data[time_col])
+        except Exception as e:
+            logger.error(f"No se pudo convertir la columna de tiempo '{time_col}' a datetime: {e}. No se generará gráfico de volumen por día.")
+            return None
+            
+    if not pd.api.types.is_numeric_dtype(df_plot_data[volume_col]):
+        logger.error(f"La columna de volumen '{volume_col}' no es numérica. No se generará gráfico de volumen por día.")
+        return None
+
+    if df_plot_data.empty:
+        logger.info(f"No hay datos válidos para gráfico de Volumen por Día de la Semana ({volume_col_label}){title_suffix}.")
+        return None
+
+    df_plot_data['day_of_week'] = df_plot_data[time_col].dt.day_name()
+    days_ordered = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    df_plot_data['day_of_week'] = pd.Categorical(df_plot_data['day_of_week'], categories=days_ordered, ordered=True)
+
+    volume_by_day = df_plot_data.groupby('day_of_week', observed=False)[volume_col].sum()
+    
+    if volume_by_day.empty or volume_by_day.sum() == 0:
+        logger.info(f"No hay volumen agregado para graficar por día de la semana ({volume_col_label}){title_suffix}.")
+        return None
+
+    plt.figure(figsize=(12, 7))
+    sns.barplot(x=volume_by_day.index, y=volume_by_day.values, palette="viridis")
+
+    title = specific_plot_title if specific_plot_title else f"Volumen Total de {volume_col_label} por Día de la Semana{title_suffix}"
+    plt.title(title, fontsize=15)
+    plt.xlabel("Día de la Semana", fontsize=12)
+    plt.ylabel(f"{volume_col_label}", fontsize=12)
+    plt.xticks(rotation=45, ha="right", fontsize=10)
+    plt.yticks(fontsize=10)
+    
+    # Formatear el eje Y para mostrar números grandes de forma legible
+    ax = plt.gca()
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: utils.format_large_number(x)))
+
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+
+    file_name = f"volume_by_day_of_week_{volume_col.lower()}{file_identifier}.png"
+    file_path = os.path.join(out_dir, file_name)
+
+    try:
+        plt.savefig(file_path)
+        logger.info(f"Gráfico de Volumen por Día de la Semana ({volume_col_label}) guardado en: {file_path}")
+        plt.close()
+        return file_path
+    except Exception as e:
+        logger.error(f"Error al guardar gráfico de Volumen por Día de la Semana ({volume_col_label}) {file_path}: {e}")
+        plt.close()
+        return None
+
+# --- Fin de la nueva función ---
+
+# --- Nueva función para VWAP (Precio Promedio Ponderado por Volumen) a lo largo del Tiempo ---
+def plot_vwap_over_time(
+    df_data_pd: pd.DataFrame,
+    time_col: str,
+    price_col: str,
+    quantity_col: str,
+    asset_col: str,
+    fiat_col: str,
+    out_dir: str,
+    title_suffix: str = "",
+    file_identifier: str = "_general"
+) -> list[str]:
+    saved_paths = []
+    logger.info(f"Iniciando generación de gráfico VWAP a lo largo del Tiempo{title_suffix}.")
+
+    required_cols = [time_col, price_col, quantity_col, asset_col, fiat_col]
+    if not all(col in df_data_pd.columns for col in required_cols):
+        missing = [col for col in required_cols if col not in df_data_pd.columns]
+        logger.warning(f"Faltan columnas ({', '.join(missing)}) para gráfico VWAP{title_suffix}. No se generará.")
+        return saved_paths
+
+    df_plot_data = df_data_pd.dropna(subset=required_cols).copy()
+
+    if not pd.api.types.is_datetime64_any_dtype(df_plot_data[time_col]):
+        try:
+            df_plot_data[time_col] = pd.to_datetime(df_plot_data[time_col])
+        except Exception as e:
+            logger.error(f"No se pudo convertir la columna de tiempo '{time_col}' a datetime: {e}. No se generará gráfico VWAP.")
+            return saved_paths
+            
+    for col_num in [price_col, quantity_col]:
+        if not pd.api.types.is_numeric_dtype(df_plot_data[col_num]):
+            try:
+                df_plot_data[col_num] = pd.to_numeric(df_plot_data[col_num], errors='coerce')
+                df_plot_data.dropna(subset=[col_num], inplace=True)
+            except Exception as e_conv_num:
+                 logger.error(f"No se pudo convertir la columna '{col_num}' a numérica: {e_conv_num}. No se generará gráfico VWAP.")
+                 return saved_paths
+
+
+    if df_plot_data.empty:
+        logger.info(f"No hay datos válidos para gráfico VWAP{title_suffix}.")
+        return saved_paths
+
+    # Agrupar por Asset y Fiat
+    for (current_asset, current_fiat), group_df_asset_fiat in df_plot_data.groupby([asset_col, fiat_col]):
+        if group_df_asset_fiat.empty:
+            logger.info(f"No hay datos para el par {current_asset}/{current_fiat} para VWAP.")
+            continue
+
+        # Agrupar por día y calcular VWAP
+        group_df_asset_fiat = group_df_asset_fiat.set_index(time_col)
+        
+        # Calcular Precio * Cantidad
+        price_times_quantity = group_df_asset_fiat[price_col] * group_df_asset_fiat[quantity_col]
+        
+        # Agrupar por día (resample)
+        daily_sum_price_x_qty = price_times_quantity.resample('D').sum()
+        daily_sum_qty = group_df_asset_fiat[quantity_col].resample('D').sum()
+        
+        # Calcular VWAP diario
+        vwap_daily = daily_sum_price_x_qty / daily_sum_qty
+        vwap_daily = vwap_daily.dropna() # Eliminar días donde el volumen fue cero (resulta en NaN/inf)
+
+        if vwap_daily.empty:
+            logger.info(f"VWAP diario vacío para {current_asset}/{current_fiat}{title_suffix}.")
+            continue
+
+        plt.figure(figsize=(15, 7))
+        vwap_daily.plot(marker='.', linestyle='-', color='dodgerblue')
+        
+        # Añadir media móvil simple de 7 días si hay suficientes datos
+        if len(vwap_daily) >= 7:
+            vwap_daily.rolling(window=7, center=False).mean().plot(linestyle='--', color='orangered', label='Media Móvil 7 Días VWAP')
+        
+        plt.title(f"Precio Promedio Ponderado por Volumen (VWAP) Diario para {current_asset}/{current_fiat}{title_suffix}", fontsize=15)
+        plt.xlabel("Fecha", fontsize=12)
+        plt.ylabel(f"VWAP en {current_fiat}", fontsize=12)
+        plt.xticks(rotation=45, ha="right", fontsize=10)
+        plt.yticks(fontsize=10)
+        
+        ax = plt.gca()
+        ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: utils.format_large_number(x) if x > 100 else f"{x:.2f}")) # Formato condicional
+
+        if len(vwap_daily) >= 7:
+            plt.legend()
+            
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+        plt.tight_layout()
+
+        file_name_part = f"vwap_daily_{str(current_asset).lower()}_{str(current_fiat).lower()}{file_identifier}.png"
+        file_path = os.path.join(out_dir, file_name_part)
+        
+        try:
+            plt.savefig(file_path)
+            logger.info(f"Gráfico VWAP ({current_asset}/{current_fiat}) guardado en: {file_path}")
+            saved_paths.append(file_path)
+            plt.close()
+        except Exception as e:
+            logger.error(f"Error al guardar gráfico VWAP ({current_asset}/{current_fiat}) {file_path}: {e}")
+            plt.close()
+            
+    return saved_paths
+
+# --- Fin de la nueva función ---
+
+# --- Nueva función para Comparativa de Volumen Compra vs. Venta a lo largo del Tiempo ---
+def plot_buy_sell_volume_over_time(
+    df_data_pd: pd.DataFrame,
+    time_col: str,
+    volume_col: str, # Ej: 'TotalPrice_num' o 'TotalPrice_USD_equivalent'
+    order_type_col: str,
+    out_dir: str,
+    volume_col_label: str, # Ej: "Volumen Fiat (USD)", "Volumen Fiat (UYU)", "Volumen (USD Equivalent)"
+    title_suffix: str = "",
+    file_identifier: str = "_general",
+    specific_plot_title: str | None = None
+) -> str | None:
+    logger.info(f"Iniciando generación de gráfico de Volumen Compra vs. Venta ({volume_col_label}){title_suffix}.")
+
+    required_cols = [time_col, volume_col, order_type_col]
+    if not all(col in df_data_pd.columns for col in required_cols):
+        missing = [col for col in required_cols if col not in df_data_pd.columns]
+        logger.warning(f"Faltan columnas ({', '.join(missing)}) para gráfico Volumen Compra vs. Venta{title_suffix}. No se generará.")
+        return None
+
+    df_plot = df_data_pd.dropna(subset=required_cols).copy()
+
+    if not pd.api.types.is_datetime64_any_dtype(df_plot[time_col]):
+        try:
+            df_plot[time_col] = pd.to_datetime(df_plot[time_col])
+        except Exception as e:
+            logger.error(f"No se pudo convertir la columna de tiempo '{time_col}' a datetime: {e}. No se generará gráfico.")
+            return None
+            
+    if not pd.api.types.is_numeric_dtype(df_plot[volume_col]):
+        try:
+            df_plot[volume_col] = pd.to_numeric(df_plot[volume_col], errors='coerce')
+            df_plot.dropna(subset=[volume_col], inplace=True)
+        except Exception as e_conv_num_vol:
+            logger.error(f"No se pudo convertir la columna de volumen '{volume_col}' a numérica: {e_conv_num_vol}. No se generará gráfico.")
+            return None
+
+    if df_plot.empty:
+        logger.info(f"No hay datos válidos para gráfico Volumen Compra vs. Venta ({volume_col_label}){title_suffix}.")
+        return None
+
+    df_plot['YearMonth'] = df_plot[time_col].dt.to_period('M')
+
+    # Filtrar para asegurar que solo tenemos 'BUY' y 'SELL' (o los valores esperados en order_type_col)
+    # Esto es importante si hay otros tipos de 'order_type' que no son relevantes aquí.
+    # Asumimos que los valores relevantes son 'BUY' y 'SELL'.
+    expected_order_types = ['BUY', 'SELL']
+    df_plot = df_plot[df_plot[order_type_col].isin(expected_order_types)]
+
+    if df_plot.empty:
+        logger.info(f"No hay datos con tipos de orden 'BUY' o 'SELL' para gráfico Volumen Compra vs. Venta ({volume_col_label}){title_suffix}.")
+        return None
+
+    volume_by_month_type = df_plot.groupby(['YearMonth', order_type_col], observed=False)[volume_col].sum().unstack(fill_value=0)
+    
+    if volume_by_month_type.empty:
+        logger.info(f"No hay volumen agregado para graficar Compra vs. Venta ({volume_col_label}){title_suffix}.")
+        return None
+        
+    # Asegurar que las columnas BUY y SELL existan, incluso si no hubo operaciones de un tipo
+    if 'BUY' not in volume_by_month_type.columns: volume_by_month_type['BUY'] = 0
+    if 'SELL' not in volume_by_month_type.columns: volume_by_month_type['SELL'] = 0
+
+    # Convertir PeriodIndex a string para graficar
+    volume_by_month_type.index = volume_by_month_type.index.astype(str)
+
+    plt.figure(figsize=(15, 8))
+    volume_by_month_type[['BUY', 'SELL']].plot(kind='bar', stacked=False, colormap='coolwarm') # side-by-side
+    # Para stacked: stacked=True
+
+    title = specific_plot_title if specific_plot_title else f"Volumen Mensual de Compra vs. Venta ({volume_col_label}){title_suffix}"
+    plt.title(title, fontsize=16)
+    plt.xlabel("Mes (Año-Mes)", fontsize=12)
+    plt.ylabel(f"{volume_col_label}", fontsize=12)
+    plt.xticks(rotation=45, ha="right", fontsize=10)
+    plt.yticks(fontsize=10)
+    plt.legend(title="Tipo de Orden")
+    
+    ax = plt.gca()
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: utils.format_large_number(x)))
+    
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+
+    file_name = f"buy_sell_volume_monthly_{volume_col.lower()}{file_identifier}.png"
+    file_path = os.path.join(out_dir, file_name)
+
+    try:
+        plt.savefig(file_path)
+        logger.info(f"Gráfico de Volumen Compra vs. Venta ({volume_col_label}) guardado en: {file_path}")
+        plt.close()
+        return file_path
+    except Exception as e:
+        logger.error(f"Error al guardar gráfico de Volumen Compra vs. Venta ({volume_col_label}) {file_path}: {e}")
+        plt.close()
+        return None
+
+# --- Fin de la nueva función ---
+
+# --- Nueva función para Scatter de Correlación Precio vs. Volumen Total Fiat ---
+def plot_price_vs_total_fiat_scatter(
+    df_data_pd: pd.DataFrame,
+    price_col: str,
+    total_fiat_col: str, # Ej: 'TotalPrice_num' o 'TotalPrice_USD_equivalent'
+    order_type_col: str, # Para colorear los puntos
+    asset_col_for_grouping: str | None, # Para agrupar si no es combinado (ej: 'asset_type')
+    fiat_col_for_grouping: str | None,  # Para agrupar si no es combinado (ej: 'fiat_type')
+    out_dir: str,
+    x_axis_label: str, # Ej: "Precio (USD)", "Precio (UYU)"
+    y_axis_label: str, # Ej: "Volumen Total Transacción (USD)", "Volumen Total Transacción (USD Equivalent)"
+    title_suffix: str = "",
+    file_identifier: str = "_general",
+    specific_plot_title: str | None = None,
+    hue_col_for_combined: str | None = None # Ej: 'asset_type' si es un gráfico combinado
+) -> str | None:
+    logger.info(f"Iniciando generación de Scatter Precio vs Volumen Fiat ({x_axis_label} vs {y_axis_label}){title_suffix}.")
+
+    required_cols = [price_col, total_fiat_col, order_type_col]
+    if asset_col_for_grouping: required_cols.append(asset_col_for_grouping)
+    if fiat_col_for_grouping: required_cols.append(fiat_col_for_grouping)
+    if hue_col_for_combined and hue_col_for_combined not in required_cols : required_cols.append(hue_col_for_combined)
+        
+    if not all(col in df_data_pd.columns for col in required_cols):
+        missing = [col for col in required_cols if col not in df_data_pd.columns]
+        logger.warning(f"Faltan columnas ({', '.join(missing)}) para Scatter Precio vs Volumen Fiat{title_suffix}. No se generará.")
+        return None
+
+    df_plot = df_data_pd.dropna(subset=[price_col, total_fiat_col, order_type_col]).copy()
+
+    for col_num in [price_col, total_fiat_col]:
+        if not pd.api.types.is_numeric_dtype(df_plot[col_num]):
+            try:
+                df_plot[col_num] = pd.to_numeric(df_plot[col_num], errors='coerce')
+                df_plot.dropna(subset=[col_num], inplace=True)
+            except Exception as e_conv_scatter_num:
+                logger.error(f"No se pudo convertir la columna '{col_num}' a numérica para scatter: {e_conv_scatter_num}.")
+                return None
+
+    if df_plot.empty:
+        logger.info(f"No hay datos válidos para Scatter Precio vs Volumen Fiat ({x_axis_label} vs {y_axis_label}){title_suffix}.")
+        return None
+
+    # Limitar el número de puntos para evitar gráficos muy pesados, especialmente scatter plots
+    max_points = 5000 
+    if len(df_plot) > max_points:
+        logger.info(f"Demasiados puntos ({len(df_plot)}) para scatter Precio vs Volumen Fiat. Tomando muestra de {max_points}.")
+        df_plot = df_plot.sample(n=max_points, random_state=42)
+
+    plt.figure(figsize=(12, 8))
+    
+    current_hue_col = order_type_col
+    if hue_col_for_combined and hue_col_for_combined in df_plot.columns:
+        current_hue_col = hue_col_for_combined
+
+    sns.scatterplot(
+        data=df_plot, 
+        x=price_col, 
+        y=total_fiat_col, 
+        hue=current_hue_col, 
+        alpha=0.6, 
+        palette="viridis", 
+        s=50 # Tamaño de los puntos
+    )
+
+    title = specific_plot_title if specific_plot_title else f"Correlación Precio vs. Volumen Total Fiat{title_suffix}"
+    plt.title(title, fontsize=16)
+    plt.xlabel(x_axis_label, fontsize=12)
+    plt.ylabel(y_axis_label, fontsize=12)
+    plt.xticks(fontsize=10)
+    plt.yticks(fontsize=10)
+    plt.legend(title=current_hue_col.replace('_',' ').title())
+
+    # Formatear ejes para números grandes si es necesario y aplicar escala logarítmica si hay mucha dispersión
+    ax = plt.gca()
+    ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: utils.format_large_number(x) if x > 1000 else f"{x:.2f}"))
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: utils.format_large_number(x)))
+
+    # Considerar escala logarítmica si los datos tienen un rango muy amplio
+    # Ejemplo: si el máximo es > 100 veces el mínimo (y ambos positivos)
+    price_min, price_max = df_plot[price_col].min(), df_plot[price_col].max()
+    total_fiat_min, total_fiat_max = df_plot[total_fiat_col].min(), df_plot[total_fiat_col].max()
+
+    if price_min > 0 and price_max / price_min > 100:
+        logger.info(f"Aplicando escala logarítmica al eje X (Precio) para scatter ({x_axis_label} vs {y_axis_label}).")
+        ax.set_xscale('log')
+    if total_fiat_min > 0 and total_fiat_max / total_fiat_min > 100:
+        logger.info(f"Aplicando escala logarítmica al eje Y (Volumen Fiat) para scatter ({x_axis_label} vs {y_axis_label}).")
+        ax.set_yscale('log')
+
+    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.tight_layout()
+
+    file_name = f"scatter_price_vs_totalfiat{file_identifier}.png"
+    file_path = os.path.join(out_dir, file_name)
+
+    try:
+        plt.savefig(file_path)
+        logger.info(f"Scatter Precio vs Volumen Fiat ({x_axis_label} vs {y_axis_label}) guardado en: {file_path}")
+        plt.close()
+        return file_path
+    except Exception as e:
+        logger.error(f"Error al guardar Scatter Precio vs Volumen Fiat ({x_axis_label} vs {y_axis_label}) {file_path}: {e}")
+        plt.close()
+        return None
+
+# --- Fin de la nueva función ---
+
+# --- Nueva función para Análisis de Profundidad de Mercado Simplificado ---
+def plot_simplified_market_depth(
+    df_data_pd: pd.DataFrame,
+    price_col: str,
+    quantity_col: str,
+    order_type_col: str,
+    asset_col: str,
+    fiat_col: str,
+    out_dir: str,
+    title_suffix: str = "",
+    file_identifier: str = "_general"
+) -> list[str]:
+    saved_paths = []
+    logger.info(f"Iniciando generación de gráfico de Profundidad de Mercado Simplificado{title_suffix}.")
+
+    required_cols = [price_col, quantity_col, order_type_col, asset_col, fiat_col]
+    if not all(col in df_data_pd.columns for col in required_cols):
+        missing = [col for col in required_cols if col not in df_data_pd.columns]
+        logger.warning(f"Faltan columnas ({', '.join(missing)}) para Profundidad de Mercado{title_suffix}. No se generará.")
+        return saved_paths
+
+    df_plot_data = df_data_pd.dropna(subset=required_cols).copy()
+
+    for col_num in [price_col, quantity_col]:
+        if not pd.api.types.is_numeric_dtype(df_plot_data[col_num]):
+            try:
+                df_plot_data[col_num] = pd.to_numeric(df_plot_data[col_num], errors='coerce')
+                df_plot_data.dropna(subset=[col_num], inplace=True)
+            except Exception as e_conv_md_num:
+                logger.error(f"No se pudo convertir la columna '{col_num}' a numérica para Market Depth: {e_conv_md_num}.")
+                return saved_paths
+
+    if df_plot_data.empty:
+        logger.info(f"No hay datos válidos para Profundidad de Mercado{title_suffix}.")
+        return saved_paths
+
+    # Agrupar por Asset y Fiat
+    for (current_asset, current_fiat), group_df_pair in df_plot_data.groupby([asset_col, fiat_col]):
+        if group_df_pair.empty:
+            logger.info(f"No hay datos para el par {current_asset}/{current_fiat} para Profundidad de Mercado.")
+            continue
+
+        bids = group_df_pair[group_df_pair[order_type_col] == 'BUY']
+        asks = group_df_pair[group_df_pair[order_type_col] == 'SELL']
+
+        if bids.empty and asks.empty:
+            logger.info(f"No hay órdenes BUY o SELL para {current_asset}/{current_fiat} para Profundidad de Mercado.")
+            continue
+
+        # Procesar Bids (Compras)
+        bid_depth = pd.DataFrame()
+        if not bids.empty:
+            bid_depth = bids.groupby(price_col)[quantity_col].sum().sort_index(ascending=False).cumsum().reset_index()
+            bid_depth.rename(columns={quantity_col: 'cumulative_bid_volume'}, inplace=True)
+
+        # Procesar Asks (Ventas)
+        ask_depth = pd.DataFrame()
+        if not asks.empty:
+            ask_depth = asks.groupby(price_col)[quantity_col].sum().sort_index(ascending=True).cumsum().reset_index()
+            ask_depth.rename(columns={quantity_col: 'cumulative_ask_volume'}, inplace=True)
+
+        if bid_depth.empty and ask_depth.empty:
+            logger.info(f"No se pudo calcular profundidad para Bids ni Asks para {current_asset}/{current_fiat}.")
+            continue
+            
+        plt.figure(figsize=(12, 7))
+        
+        if not bid_depth.empty:
+            plt.plot(bid_depth['cumulative_bid_volume'], bid_depth[price_col], label='Demanda (Vol. Compras Acum.)', color='green', drawstyle='steps-pre')
+        
+        if not ask_depth.empty:
+            plt.plot(ask_depth['cumulative_ask_volume'], ask_depth[price_col], label='Oferta (Vol. Ventas Acum.)', color='red', drawstyle='steps-pre')
+
+        plt.title(f"Profundidad de Mercado Simplificada para {current_asset}/{current_fiat}{title_suffix}", fontsize=15)
+        plt.xlabel(f"Volumen Acumulado de {current_asset}", fontsize=12)
+        plt.ylabel(f"Precio en {current_fiat}", fontsize=12)
+        plt.xticks(fontsize=10); plt.yticks(fontsize=10)
+        plt.legend(); plt.grid(True, linestyle='--', alpha=0.7)
+        
+        ax = plt.gca()
+        ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: utils.format_large_number(x)))
+        ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: utils.format_large_number(x) if x > 1000 else f"{x:.3f}"))
+        
+        # Podríamos intentar encontrar y marcar el "precio de cruce" si existe visualmente.
+        # Esto es más complejo y podría requerir interpolación.
+
+        plt.tight_layout()
+        file_name_part = f"market_depth_simplified_{str(current_asset).lower()}_{str(current_fiat).lower()}{file_identifier}.png"
+        file_path = os.path.join(out_dir, file_name_part)
+        
+        try:
+            plt.savefig(file_path)
+            logger.info(f"Gráfico de Profundidad de Mercado ({current_asset}/{current_fiat}) guardado en: {file_path}")
+            saved_paths.append(file_path)
+            plt.close()
+        except Exception as e:
+            logger.error(f"Error al guardar Profundidad de Mercado ({current_asset}/{current_fiat}) {file_path}: {e}")
+            plt.close()
+            
+    return saved_paths
+
+# --- Fin de la nueva función ---
