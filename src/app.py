@@ -19,7 +19,7 @@ import sys
 from .config_loader import load_config, setup_logging
 from .main_logic import initialize_analysis, run_analysis_pipeline
 from .utils import parse_amount # Asegurarse que utils.py está en src/
-from .analyzer import analyze # DESCOMENTAR: analyze se llama desde main_logic Y TAMBIÉN AQUÍ para pre-procesar
+from .analyzer import analyze # analyze se llama desde main_logic Y TAMBIÉN AQUÍ para pre-procesar
 from . import plotting # plotting.py está en src/
 
 # --- Configuración de Logging Básico ---
@@ -108,8 +108,6 @@ def main():
         df_master_processed=df_master_processed, # DataFrame ya pre-procesado con columnas como 'Year'
         args=args,
         config=config,
-        # col_map y sell_config ya no se pasan directamente a run_analysis_pipeline,
-        # se acceden desde el objeto 'config' dentro de esa función.
         base_file_suffix=clean_filename_suffix_cli, # Nombre de argumento actualizado
         base_title_suffix=analysis_title_suffix_cli  # Nombre de argumento actualizado
     )

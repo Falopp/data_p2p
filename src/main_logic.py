@@ -4,7 +4,6 @@ import logging
 from pathlib import Path
 from typing import Tuple, Dict, Any, List
 
-# DONE: Mover imports a top-level
 from .analyzer import analyze
 from .reporter import save_outputs
 
@@ -235,64 +234,4 @@ def run_analysis_pipeline(
             )
         logger.info(f"Finished processing for year: {period_label_for_year}.")
 
-    logger.info("Analysis pipeline finished.")
-
-# Ejemplo de cómo app.py podría llamar a esto (basado en el README):
-#
-# import src.main_logic as main_logic
-# import src.config_loader as config_loader
-# import polars as pl
-# import logging
-# from pathlib import Path
-#
-# if __name__ == "__main__":
-#     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
-#     logger = logging.getLogger(__name__)
-#
-#     args, file_suffix, title_suffix = main_logic.initialize_analysis()
-#     config = config_loader.load_config()
-#
-#     try:
-#         # Carga y pre-procesamiento básico como en app.py
-#         df_raw = pl.read_csv(
-#             args.csv,
-#             try_parse_dates=True, # Polars intentará parsear fechas
-#             # dtypes={config['column_mapping'].get('order_number'): pl.Utf8, ...} si es necesario
-#         )
-#         logger.info(f"Successfully loaded CSV: {args.csv} with {df_raw.shape[0]} rows and {df_raw.shape[1]} columns.")
-#
-#         # Renombrar columnas según config
-#         rename_map = {v: k for k, v in config.get('column_mapping', {}).items() if v in df_raw.columns}
-#         df_renamed = df_raw.rename(rename_map)
-#
-#         # Aplicar filtros CLI globales (simplificado, la lógica real de app.py puede ser más compleja)
-#         df_filtered_by_cli = df_renamed # df_master_processed de app.py
-#         if args.fiat_filter:
-#             df_filtered_by_cli = df_filtered_by_cli.filter(pl.col(config['column_mapping'].get('fiat_type','fiat_type')).is_in([f.upper() for f in args.fiat_filter]))
-#         # ... otros filtros CLI ...
-#
-#         if df_filtered_by_cli.is_empty():
-#             logger.error("DataFrame is empty after applying CLI filters. Exiting.")
-#         else:
-#             # Primera pasada de analyze para generar columnas base como 'Year'
-#             # Esto es lo que el README llama df_master_processed
-#             df_master_processed_with_base_cols, _ = analyze(
-#                 df_filtered_by_cli, 
-#                 config['column_mapping'], 
-#                 config['sell_operation']
-#             )
-#             
-#             if df_master_processed_with_base_cols.is_empty():
-#                 logger.error("DataFrame is empty after initial analysis (e.g., date parsing failed). Exiting.")
-#             else:
-#                 main_logic.run_analysis_pipeline(
-#                     df_master_processed_with_base_cols, 
-#                     args, 
-#                     config, 
-#                     file_suffix, 
-#                     title_suffix
-#                 )
-#                 logger.info(f"All processing complete. Outputs are in '{Path(args.out).resolve()}'")
-#
-#     except Exception as e:
-#         logger.exception(f"An error occurred during the process: {e}") 
+    logger.info("Analysis pipeline finished.") 

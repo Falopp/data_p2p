@@ -38,8 +38,6 @@ def load_config() -> dict:
 
 def setup_logging(config: dict | None = None):
     """Configura el logging básico."""
-    # Por ahora, ignora el config y usa una configuración simple.
-    # En el futuro, podría usar config para niveles de log, formato, archivo de log, etc.
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',

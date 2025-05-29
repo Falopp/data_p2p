@@ -3,10 +3,8 @@ import logging
 from .utils import parse_amount # Importar parse_amount de utils
 from . import finance_utils # Usar import relativo si está en el mismo paquete src
 import numpy as np # Añadir numpy para FFT
-# DONE: 1.6 Importar IsolationForest
 from sklearn.ensemble import IsolationForest
-# DONE: 3.2 Importar datetime y timedelta
-from datetime import datetime, timedelta, timezone 
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +58,7 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
             logger.warning(warning_msg)
     logger.info("Transformación de columnas numéricas completada.")
 
-    # --- INICIO: Parche para corregir Price_num en USDT/USD BUY ---
+    # --- INICIO: Parche para corregir Price_num en USDT/USD ---
     if (asset_type_col in df_processed.columns and
         fiat_type_col in df_processed.columns and
         order_type_col in df_processed.columns and
@@ -69,7 +67,6 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
         price_correction_condition = (
             (pl.col(asset_type_col) == "USDT") &
             (pl.col(fiat_type_col) == "USD") &
-            # (pl.col(order_type_col) == "BUY") & # Comentamos o eliminamos esta línea para aplicar a BUY y SELL
             (pl.col('Price_num').is_not_null()) &
             (pl.col('Price_num') > 10) # Umbral para precios probablemente mal interpretados
         )
@@ -83,14 +80,14 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
                 pl.when(price_correction_condition)
                 .then(pl.col('Price_num') / 1000)
                 .otherwise(pl.col('Price_num'))
-                .alias('Price_num') 
+                .alias('Price_num')
             )
             logger.info(f"Corrección de Price_num para USDT/USD aplicada.")
         else:
             logger.info("No se encontraron filas USDT/USD que necesiten corrección de Price_num (Price_num > 10).")
     else:
-        logger.info("No se aplicó el parche de corrección de Price_num para USDT/USD porque faltan una o más columnas requeridas (asset_type, fiat_type, Price_num).") 
-    # --- FIN: Parche para corregir Price_num en USDT/USD BUY ---
+        logger.info("No se aplicó el parche de corrección de Price_num para USDT/USD porque faltan una o más columnas requeridas (asset_type, fiat_type, Price_num).")
+    # --- FIN: Parche para corregir Price_num en USDT/USD ---
 
     # --- INICIO: Crear TotalPrice_USD_equivalent ---
     logger.info("Creando columna 'TotalPrice_USD_equivalent' para volúmenes combinados...")
@@ -161,12 +158,12 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
 
             df_processed = df_processed.with_columns([
                 pl.col('Match_time_local').dt.hour().alias('hour_local'),
-                pl.col('Match_time_local').dt.strftime('%Y-%m').alias('YearMonthStr'), 
+                pl.col('Match_time_local').dt.strftime('%Y-%m').alias('YearMonthStr'),
                 pl.col('Match_time_local').dt.year().alias('Year')
             ]).drop('Match_time_utc_dt_naive')
             
             initial_rows = df_processed.height
-            df_processed = df_processed.drop_nulls(subset=['Match_time_utc_dt']) 
+            df_processed = df_processed.drop_nulls(subset=['Match_time_utc_dt'])
             rows_dropped = initial_rows - df_processed.height
             if rows_dropped > 0:
                 logger.info(f"Filas eliminadas debido a valores nulos/inválidos en 'Match_time_utc_dt': {rows_dropped}")
@@ -185,24 +182,24 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
             ])
     elif 'Match_time_local' in df_processed.columns and isinstance(df_processed.schema['Match_time_local'], pl.Datetime):
         logger.info("Columnas de tiempo base (Match_time_local, hour_local, YearMonthStr, Year) ya existen o se crearán si faltan.")
-        if 'hour_local' not in df_processed.columns: 
+        if 'hour_local' not in df_processed.columns:
             df_processed = df_processed.with_columns(pl.col('Match_time_local').dt.hour().alias('hour_local'))
             time_cols_created_or_verified.append('hour_local (derivada)')
-        else: 
+        else:
             time_cols_created_or_verified.append('hour_local (existente)')
             
-        if 'YearMonthStr' not in df_processed.columns: 
+        if 'YearMonthStr' not in df_processed.columns:
             df_processed = df_processed.with_columns(pl.col('Match_time_local').dt.strftime('%Y-%m').alias('YearMonthStr'))
             time_cols_created_or_verified.append('YearMonthStr (derivada)')
         else:
             time_cols_created_or_verified.append('YearMonthStr (existente)')
 
-        if 'Year' not in df_processed.columns: 
+        if 'Year' not in df_processed.columns:
             df_processed = df_processed.with_columns(pl.col('Match_time_local').dt.year().alias('Year'))
             time_cols_created_or_verified.append('Year (derivada)')
         else:
             time_cols_created_or_verified.append('Year (existente)')
-    else: 
+    else:
         logger.warning(f"'Match_time_local' existe pero no es Datetime. Forzando columnas de tiempo relacionadas a nulos.")
         df_processed = df_processed.with_columns([
                 pl.lit(None, dtype=pl.Datetime(time_unit='us', time_zone=None)).alias('Match_time_local'),
@@ -218,7 +215,7 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
     metrics: dict[str, pl.DataFrame | pl.Series] = {}
     logger.info("Calculando métricas con Polars...")
 
-    df_completed_for_sales_summary = pl.DataFrame() 
+    df_completed_for_sales_summary = pl.DataFrame()
     if status_col in df_processed.columns:
         df_completed_for_sales_summary = df_processed.filter(pl.col(status_col) == 'Completed').clone()
         if df_completed_for_sales_summary.is_empty():
@@ -282,7 +279,7 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
                                      .agg([
                                          pl.col('TotalFee').sum().alias('total_fees_collected'),
                                          pl.col('TotalFee').mean().alias('avg_fee_per_op'),
-                                         pl.col('TotalFee').filter(pl.col('TotalFee') > 0).count().alias('num_ops_with_fees'), 
+                                         pl.col('TotalFee').filter(pl.col('TotalFee') > 0).count().alias('num_ops_with_fees'),
                                          pl.col('TotalFee').max().alias('max_fee')
                                      ])
                                      .sort('total_fees_collected', descending=True))
@@ -303,27 +300,26 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
                 metrics['monthly_fiat'] = monthly_summary.pivot(
                     values='sum_total_price',
                     index=['YearMonthStr', fiat_type_col],
-                    on=order_type_col,  
-                    aggregate_function=None 
-                ).fill_null(0) 
-            except Exception as e: 
+                    on=order_type_col,
+                    aggregate_function=None
+                ).fill_null(0)
+            except Exception as e:
                 logger.error(f"Error al pivotar monthly_fiat: {e}. La tabla podría estar en formato largo.")
-                metrics['monthly_fiat'] = monthly_summary 
+                metrics['monthly_fiat'] = monthly_summary
         else:
             logger.warning(f"No se pueden calcular monthly_fiat. DataFrame vacío o faltan columnas.")
             metrics['monthly_fiat'] = pl.DataFrame()
 
     if status_col in df_processed.columns:
-        metrics['status_counts'] = df_processed[status_col].value_counts() 
+        metrics['status_counts'] = df_processed[status_col].value_counts()
     else:
-        metrics['status_counts'] = pl.Series(dtype=pl.datatypes.UInt32).to_frame() 
+        metrics['status_counts'] = pl.Series(dtype=pl.datatypes.UInt32).to_frame()
 
     if order_type_col in df_processed.columns:
         metrics['side_counts'] = df_processed[order_type_col].value_counts()
     else:
         metrics['side_counts'] = pl.Series(dtype=pl.datatypes.UInt32).to_frame()
 
-    # DONE: 1.7 Índice de liquidez efectiva (mean_qty/median_qty)
     logger.info("Calculando Índice de Liquidez Efectiva (mean_qty/median_qty)...")
     if 'Quantity_num' in df_processed.columns and df_processed['Quantity_num'].null_count() < df_processed.height:
         quantity_series = df_processed['Quantity_num'].drop_nulls()
@@ -345,7 +341,6 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
         logger.warning("Columna 'Quantity_num' no encontrada o completamente nula. No se calculará el Índice de Liquidez Efectiva.")
         metrics['effective_liquidity_index'] = pl.DataFrame({'index_value': [None], 'mean_quantity': [mean_qty], 'median_quantity': [median_qty]})
 
-    # DONE: 3.1 Whale trades (> mean + 3σ)
     logger.info("Detectando Whale Trades (TotalPrice_num > mean + 3*std)...")
     if 'TotalPrice_num' in df_processed.columns and not df_processed.filter(pl.col('TotalPrice_num').is_not_null()).is_empty():
         total_price_series = df_processed['TotalPrice_num'].drop_nulls()
@@ -379,7 +374,6 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
         logger.warning("Columna 'TotalPrice_num' no disponible para detectar whale trades.")
         metrics['whale_trades'] = pl.DataFrame()
 
-    # DONE: 3.2 Before/After --event_date comparativo 24h
     logger.info("Analizando comparación Antes/Después de --event-date...")
     event_date_str = cli_args.get('event_date') if cli_args else None
     if event_date_str:
@@ -391,17 +385,17 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
             if 'Match_time_utc_dt' in df_processed.columns and df_processed['Match_time_utc_dt'].dtype == pl.Datetime(time_unit='us', time_zone='UTC'):
                 # Definir ventanas de 24h antes y después
                 before_window_start = event_dt_utc - timedelta(hours=24)
-                before_window_end = event_dt_utc 
+                before_window_end = event_dt_utc
                 after_window_start = event_dt_utc
                 after_window_end = event_dt_utc + timedelta(hours=24)
 
                 df_before_event = df_processed.filter(
-                    (pl.col('Match_time_utc_dt') >= before_window_start) & 
+                    (pl.col('Match_time_utc_dt') >= before_window_start) &
                     (pl.col('Match_time_utc_dt') < before_window_end)
                 )
                 df_after_event = df_processed.filter(
-                    (pl.col('Match_time_utc_dt') >= after_window_start) & 
-                    (pl.col('Match_time_utc_dt') < after_window_end) 
+                    (pl.col('Match_time_utc_dt') >= after_window_start) &
+                    (pl.col('Match_time_utc_dt') < after_window_end)
                 )
 
                 event_comparison_stats = {}
@@ -438,7 +432,6 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
         logger.info("--event-date no proporcionado. Se omite análisis comparativo Antes/Después.")
         metrics['event_comparison_stats'] = pl.DataFrame() # Vacío si no se activa
 
-    # DONE: 1.6 Detección de Outliers (Isolation Forest) en Price_num
     logger.info("Iniciando Detección de Outliers (Isolation Forest) en Price_num...")
     if cli_args and getattr(cli_args, 'detect_outliers', False):
         if 'Price_num' in df_processed.columns and not df_processed.filter(pl.col('Price_num').is_not_null()).is_empty():
@@ -448,7 +441,6 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
                 prices_for_model = df_for_outliers.select('Price_num').to_numpy()
                 
                 try:
-                    # DONE: 1.6 Configurar y entrenar IsolationForest
                     iso_forest = IsolationForest(
                         n_estimators=cli_args.get('outliers_n_estimators', 100),
                         contamination=float(cli_args.get('outliers_contamination', 'auto')), # 'auto' o un float
@@ -493,8 +485,6 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
     else:
         logger.info("Detección de outliers no activada mediante argumento CLI (--detect_outliers).")
         metrics['outlier_info'] = pl.DataFrame() # DataFrame vacío si no está activada
-
-    # -- FIN MÉTRICAS AVANZADAS --
 
     logger.info("Análisis finalizado.")
     return df_processed, metrics

@@ -2,7 +2,6 @@ import polars as pl
 import logging
 import numpy as np
 
-# DONE: Configurar logger estándar
 logger = logging.getLogger(__name__)
 
 def calculate_daily_returns(prices: pl.Series) -> pl.Series:
