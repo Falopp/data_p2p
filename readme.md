@@ -85,7 +85,6 @@ p2p/
 │   └── analisis_profesional_p2p.py # Script principal de análisis
 ├── templates/                # Plantillas HTML
 │   └── report_template.html  # Plantilla para el reporte HTML
-├── config.yaml               # Archivo de configuración opcional
 ├── README.md                 # Este archivo
 └── requirements.txt          # Dependencias del proyecto
 ```
