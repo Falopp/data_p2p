@@ -292,4 +292,4 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict) -> tuple[pl.Data
                     metrics['sales_summary_all_assets_fiat_detailed'] = pl.DataFrame()
 
     logger.info("Análisis (cálculo de métricas con Polars) completado.")
-    return df_processed, metrics 
+    return df_processed, metrics

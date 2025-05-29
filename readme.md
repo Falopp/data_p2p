@@ -63,33 +63,58 @@ p2p/
 ├── data/                     # Carpeta para el archivo CSV de entrada
 │   └── p2p.csv               # (Debe colocarse aquí manualmente)
 ├── output/                   # Carpeta base donde se guardan todos los resultados
-│   ├── total/                # Resultados para el conjunto de datos completo (filtrado por CLI)
+│   ├── 2022/                 # Resultados filtrados para el año 2022
 │   │   ├── canceladas/
 │   │   │   ├── figures/
 │   │   │   ├── reports/
-│   │   │   └── tables/       # Tablas CSV generadas por Polars
+│   │   │   └── tables/
 │   │   ├── completadas/
 │   │   │   ├── figures/
 │   │   │   ├── reports/
-│   │   │   └── tables/       # Tablas CSV generadas por Polars
+│   │   │   └── tables/
 │   │   └── todas/
 │   │       ├── figures/
 │   │       ├── reports/
-│   │       └── tables/       # Tablas CSV generadas por Polars
-│   ├── 2022/                 # Resultados filtrados para el año 2022
-│   │   ├── canceladas/
-│   │   │   └── ... (misma estructura que total/)
+│   │       └── tables/
+│   ├── 2023/                 # Resultados filtrados para el año 2023
+│   │   ├── canceladas/       # (misma subestructura: figures/, reports/, tables/)
+│   │   │   └── ...
 │   │   ├── completadas/
 │   │   │   └── ...
 │   │   └── todas/
 │   │       └── ...
-│   ├── 2023/                 # Resultados filtrados para el año 2023
-│   │   └── ... (misma estructura)
-│   └── ...                   # (Más carpetas de años si existen en los datos)
+│   ├── 2024/                 # Resultados filtrados para el año 2024
+│   │   ├── canceladas/       # (misma subestructura)
+│   │   │   └── ...
+│   │   ├── completadas/
+│   │   │   └── ...
+│   │   └── todas/
+│   │       └── ...
+│   ├── 2025/                 # Resultados filtrados para el año 2025
+│   │   ├── canceladas/       # (misma subestructura)
+│   │   │   └── ...
+│   │   ├── completadas/
+│   │   │   └── ...
+│   │   └── todas/
+│   │       └── ...
+│   ├── total/                # Resultados para el conjunto de datos completo (filtrado por CLI)
+│   │   ├── canceladas/
+│   │   │   ├── figures/
+│   │   │   ├── reports/
+│   │   │   └── tables/
+│   │   ├── completadas/
+│   │   │   ├── figures/
+│   │   │   ├── reports/
+│   │   │   └── tables/
+│   │   └── todas/
+│   │       ├── figures/
+│   │       ├── reports/
+│   │       └── tables/
 ├── src/                      # Código fuente
-│   └── analisis_profesional_p2p.py # Script principal de análisis (usa Polars)
+│   └── app.py                # Script principal de análisis (usa Polars)
 ├── templates/                # Plantillas HTML
 │   └── report_template.html  # Plantilla para el reporte HTML
+├── .gitignore                # Archivo para especificar archivos ignorados por Git
 ├── README.md                 # Este archivo
 └── requirements.txt          # Dependencias del proyecto
 ```
@@ -119,14 +144,14 @@ p2p/
 
 ## 🚀 Uso
 
-El script principal es `src/analisis_profesional_p2p.py`. Se ejecuta desde la línea de comandos.
+El script principal es `src/app.py`. Se ejecuta desde la línea de comandos.
 
 **Comando Básico (Análisis Total y por Año, segmentado por estado):**
 
 Procesa `data/p2p.csv` y guarda los resultados en la estructura de carpetas dentro de `output/`. Por defecto, considera las órdenes `"Completed"` para ciertos cálculos base si ` --status_filter ` no se usa, pero la segmentación `completadas/canceladas/todas` siempre se realiza.
 
 ```bash
-python src/analisis_profesional_p2p.py --csv data/p2p.csv
+python src/app.py --csv data/p2p.csv
 ```
 
 **Solo Análisis Total (sin desglose anual):**
@@ -134,26 +159,26 @@ python src/analisis_profesional_p2p.py --csv data/p2p.csv
 Utiliza el flag ` --no_annual_breakdown `. La segmentación por estado (`completadas/canceladas/todas`) se mantiene para el directorio `total/`.
 
 ```bash
-python src/analisis_profesional_p2p.py --csv data/p2p.csv --no_annual_breakdown
+python src/app.py --csv data/p2p.csv --no_annual_breakdown
 ```
 
 **Especificar Carpeta de Salida Principal:**
 
 ```bash
-python src/analisis_profesional_p2p.py --csv data/p2p.csv --out mis_resultados
+python src/app.py --csv data/p2p.csv --out mis_resultados
 ```
 
 **Ejemplos de Filtrado (se aplican al conjunto de datos *antes* del desglose anual y la segmentación por estado):**
 
 *   **Filtrar por Fiat UYU y Activo USDT:**
     ```bash
-    python src/analisis_profesional_p2p.py --csv data/p2p.csv --fiat_filter UYU --asset_filter USDT
+    python src/app.py --csv data/p2p.csv --fiat_filter UYU --asset_filter USDT
     ```
     > *(Los nombres de los archivos CSV/PNG dentro de las carpetas `output/[periodo]/[estado]/tables/` y `output/[periodo]/[estado]/figures/` reflejarán estos filtros CLI en sus nombres.)*
 
 *   **Filtrar por estado de orden "Cancelled" (CLI):**
     ```bash
-    python src/analisis_profesional_p2p.py --csv data/p2p.csv --status_filter Cancelled
+    python src/app.py --csv data/p2p.csv --status_filter Cancelled
     ```
     > *(En este caso, dentro de `output/[periodo]/`, la subcarpeta `completadas/` estará vacía o no se creará. La carpeta `canceladas/` y `todas/` contendrán los datos de las órdenes canceladas. Los nombres de archivo reflejarán `status_Cancelled`.)*
 

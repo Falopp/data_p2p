@@ -301,32 +301,35 @@ def save_outputs(
             else:
                 logger.info(f"No hay datos 'Completed' para {pair_info['asset']}/{pair_info['fiat']} para Volumen vs. Precio.")
         
-        # Las siguientes gráficas se eliminan según solicitud:
-        # try: paths_price_time = plotting.plot_price_over_time(df_completed_for_plots_pandas, figures_dir, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli) 
-        # except Exception as e: logger.error(f"Error en plot_price_over_time: {e}")
-        # add_figure_to_html_list(paths_price_time, "Evolución del Precio")
-        
-        # try: paths_vol_time = plotting.plot_volume_over_time(df_completed_for_plots_pandas, figures_dir, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli) 
-        # except Exception as e: logger.error(f"Error en plot_volume_over_time: {e}")
-        # add_figure_to_html_list(paths_vol_time, "Evolución del Volumen")
-        
-        # try: paths_pm = plotting.plot_price_vs_payment_method(df_completed_for_plots_pandas, figures_dir, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli) 
-        # except Exception as e: logger.error(f"Error en plot_price_vs_payment_method: {e}")
-        # add_figure_to_html_list(paths_pm, "Precio vs. Método de Pago")
+        # --- Activity Heatmap --- 
+        path_heatmap = None
+        logger.info(f"[HEATMAP_DEBUG] Verificando para heatmap en '{output_label} - {status_subdir}'.")
+        logger.info(f"[HEATMAP_DEBUG] df_to_plot_from_pandas.empty: {df_to_plot_from_pandas.empty}")
+        if not df_to_plot_from_pandas.empty:
+            logger.info(f"[HEATMAP_DEBUG] Columnas en df_to_plot_from_pandas: {df_to_plot_from_pandas.columns.tolist()}")
+            required_cols_heatmap = ['Match_time_local', 'order_number', 'hour_local']
+            missing_cols = [col for col in required_cols_heatmap if col not in df_to_plot_from_pandas.columns]
+            if missing_cols:
+                logger.warning(f"[HEATMAP_DEBUG] Faltan columnas requeridas para heatmap en '{output_label} - {status_subdir}': {missing_cols}. DataFrame head:\n{df_to_plot_from_pandas.head().to_string()}")
+            else:
+                # Verificar si las columnas requeridas tienen datos válidos (no todos NaN)
+                all_nan_cols = []
+                for col in required_cols_heatmap:
+                    if df_to_plot_from_pandas[col].isna().all():
+                        all_nan_cols.append(col)
+                if all_nan_cols:
+                    logger.warning(f"[HEATMAP_DEBUG] Columnas requeridas para heatmap son todos NaN en '{output_label} - {status_subdir}': {all_nan_cols}. DataFrame head:\n{df_to_plot_from_pandas.head().to_string()}")
+                else:
+                    logger.info(f"Generando heatmap de actividad para '{output_label} - {status_subdir}' ({len(df_to_plot_from_pandas)} filas).")
+                    try:
+                        path_heatmap = plotting.plot_activity_heatmap(df_to_plot_from_pandas, figures_dir, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli) 
+                    except Exception as e: 
+                        logger.error(f"Error en plot_activity_heatmap para '{output_label} - {status_subdir}': {e}")
+                    add_figure_to_html_list(path_heatmap, "Heatmap de Actividad")
+        else:
+            logger.info(f"Omitiendo heatmap de actividad para '{output_label} - {status_subdir}' ya que df_to_plot_from_pandas está vacío.")
     else:
         logger.info(f"Omitiendo gráficos basados en datos 'Completed' para '{output_label} - {status_subdir}' ya que no hay datos 'Completed' o el DataFrame base está vacío.")
-
-    # --- Activity Heatmap --- 
-    path_heatmap = None
-    if not df_to_plot_from_pandas.empty:
-        logger.info(f"Generando heatmap de actividad para '{output_label} - {status_subdir}' ({len(df_to_plot_from_pandas)} filas).")
-        try:
-            path_heatmap = plotting.plot_activity_heatmap(df_to_plot_from_pandas, figures_dir, title_suffix=final_title_suffix, file_identifier=file_name_suffix_from_cli) 
-        except Exception as e: 
-            logger.error(f"Error en plot_activity_heatmap: {e}")
-        add_figure_to_html_list(path_heatmap, "Heatmap de Actividad")
-    else:
-        logger.info(f"Omitiendo heatmap de actividad para '{output_label} - {status_subdir}' ya que df_to_plot_from_pandas está vacío.")
 
     # --- Fees Analysis Plot --- 
     # fees_stats_pd = metrics_to_save_pandas.get('fees_stats') # Ya no se necesita el gráfico
@@ -357,7 +360,7 @@ def save_outputs(
             'applied_filters': {},
             'sales_summary_data': {},
             'included_tables': [],
-            'included_figures': figures_for_html 
+            'included_figures': figures_for_html
         }
         
         if cli_args.fiat_filter: html_context['applied_filters']['Monedas Fiat (CLI)'] = ", ".join(cli_args.fiat_filter)

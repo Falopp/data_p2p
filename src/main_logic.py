@@ -91,11 +91,13 @@ def run_analysis_pipeline(df_master_processed: pl.DataFrame, args: argparse.Name
                     df_subset_for_status = df_period_base.filter(pl.col(status_col_internal) == 'Completed')
             elif status_category == "canceladas":
                 if status_col_internal in df_period_base.columns:
-                     df_subset_for_status = df_period_base.filter(pl.col(status_col_internal) == 'Cancelled') 
+                     df_subset_for_status = df_period_base.filter(pl.col(status_col_internal).is_in(['Cancelled', 'System cancelled'])) 
             
             if df_subset_for_status.is_empty():
                 logger.info(f"No hay datos para '{status_category}' en período '{period_label}'. Se omite.")
                 continue
+            else:
+                logger.info(f"DataFrame para '{status_category}' en período '{period_label}' tiene {df_subset_for_status.height} filas ANTES de llamar a analyze.")
 
             logger.info(f"Analizando {df_subset_for_status.height} filas para {period_label.upper()} - {status_category.upper()} con Polars")
             # La función analyze ya está definida en src.analyzer, la importamos arriba.
