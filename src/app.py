@@ -19,7 +19,7 @@ import sys
 from .config_loader import load_config, setup_logging
 from .main_logic import initialize_analysis, run_analysis_pipeline
 from .utils import parse_amount # Asegurarse que utils.py está en src/
-# from .analyzer import analyze # analyze se llama desde main_logic
+from .analyzer import analyze # DESCOMENTAR: analyze se llama desde main_logic Y TAMBIÉN AQUÍ para pre-procesar
 from . import plotting # plotting.py está en src/
 
 # --- Configuración de Logging Básico ---
@@ -89,23 +89,29 @@ def main():
         print("El DataFrame está vacío después de aplicar los filtros CLI. No se generarán resultados.")
         exit(0)
 
-    # logger.info("\n=== Pre-procesando DataFrame base con Polars (después de filtros CLI) ===")
-    # df_master_processed, _ = analyze(df_cli_filtered.clone(), col_map, sell_config, cli_args=vars(args)) # ELIMINAR ESTA LLAMADA
-    # La variable df_master_processed será ahora df_cli_filtered directamente
+    logger.info("\n=== Pre-procesando DataFrame base con Polars (después de filtros CLI) para generar columnas base ===")
+    # Esta llamada es crucial para que df_master_processed tenga columnas como 'Year'
+    # generadas por analyze, antes de pasarlo a run_analysis_pipeline.
+    df_master_processed, _ = analyze(
+        df_cli_filtered.clone(), # Usar una copia para no modificar df_cli_filtered si se usa después
+        col_map, 
+        sell_config, 
+        cli_args=vars(args) # analyze espera cli_args como un dict
+    )
 
-    # if df_cli_filtered.is_empty(): # Ya se comprobó antes
-    #     print("DataFrame vacío después del pre-procesamiento inicial (post-CLI filters). No se generarán resultados.")
-    #     exit(0)
+    if df_master_processed.is_empty():
+        print("DataFrame vacío después del pre-procesamiento inicial con 'analyze' (post-CLI filters). No se generarán resultados.")
+        exit(0)
 
-    # Llamar a run_analysis_pipeline con el df_cli_filtered
+    # Llamar a run_analysis_pipeline con el df_master_processed
     run_analysis_pipeline(
-        df_master_processed=df_cli_filtered, # Pasar el df filtrado por CLI
+        df_master_processed=df_master_processed, # DataFrame ya pre-procesado con columnas como 'Year'
         args=args,
         config=config,
-        col_map=col_map,
-        sell_config=sell_config,
-        clean_filename_suffix_cli=clean_filename_suffix_cli,
-        analysis_title_suffix_cli=analysis_title_suffix_cli
+        # col_map y sell_config ya no se pasan directamente a run_analysis_pipeline,
+        # se acceden desde el objeto 'config' dentro de esa función.
+        base_file_suffix=clean_filename_suffix_cli, # Nombre de argumento actualizado
+        base_title_suffix=analysis_title_suffix_cli  # Nombre de argumento actualizado
     )
 
     print(f"\n\u2705 Todos los análisis completados. Resultados en: {os.path.abspath(args.out)}")
