@@ -1,8 +1,29 @@
-# Proyecto de Análisis de Datos P2P (Versión Profesional)
+# Proyecto de Análisis de Datos P2P (Versión Profesional) 🚀
 
 Este proyecto proporciona una solución integral para el análisis avanzado de datos de operaciones Peer-to-Peer (P2P), comúnmente exportados desde plataformas de intercambio de criptomonedas como Binance. Utilizando el poder y la eficiencia de la biblioteca **Polars** para el backend de procesamiento de datos, el script principal ingiere un archivo CSV, realiza una limpieza y transformación exhaustiva de los datos, calcula un amplio espectro de métricas financieras y de actividad, genera múltiples tablas de resumen detalladas, crea visualizaciones informativas con `matplotlib` y `seaborn`, y consolida toda esta información en reportes HTML interactivos.
 
 Una característica distintiva es su capacidad para organizar los resultados de forma meticulosa: no solo para el conjunto de datos completo, sino también desglosado por cada año presente en los datos. Además, dentro de cada uno de estos periodos (total y anual), el análisis se segmenta aún más según el estado de la orden —`Completadas`, `Canceladas`, y `Todas`— permitiendo una granularidad excepcional y una comprensión profunda de las dinámicas de las operaciones P2P.
+
+## 📖 Tabla de Contenidos
+1.  [🎯 Visión General del Proyecto](#-visión-general-del-proyecto)
+2.  [🛠️ Arquitectura del Código Fuente (`src/`)](#️-arquitectura-del-código-fuente-src)
+    *   [`app.py`](#apppy)
+    *   [`main_logic.py`](#main_logicpy)
+    *   [`analyzer.py`](#analyzerpy)
+    *   [`reporter.py`](#reporterpy)
+    *   [`plotting.py`](#plottingpy)
+    *   [`config_loader.py`](#config_loaderpy)
+    *   [`utils.py`](#utilspy)
+3.  [🌊 Flujo de Procesamiento de Datos Detallado](#-flujo-de-procesamiento-de-datos-detallado)
+4.  [⚙️ Configuración del Proyecto (`src/config_loader.py`)](#️-configuración-del-proyecto-srcconfig_loaderpy)
+5.  [📊 Columnas Clave y Mapeo](#-columnas-clave-y-mapeo)
+6.  [📈 Métricas Calculadas (`src/analyzer.py`)](#-métricas-calculadas-srcanalyzerpy)
+7.  [🖼️ Generación de Salidas (`src/reporter.py` y `src/plotting.py`)](#️-generación-de-salidas-srcreporterpy-y-srcplottingpy)
+8.  [🚀 Uso Avanzado y Argumentos CLI](#-uso-avanzado-y-argumentos-cli)
+9.  [👨‍💻 Guía para Desarrolladores](#-guía-para-desarrolladores)
+10. [🔗 Dependencias Clave](#-dependencias-clave)
+11. [🔄 Flujo de Procesamiento de Datos (Resumen Gráfico Simplificado)](#-flujo-de-procesamiento-de-datos-resumen-gráfico-simplificado)
+
 
 ## 🎯 Visión General del Proyecto
 
@@ -14,7 +35,7 @@ El objetivo principal de este proyecto es ofrecer a los usuarios una herramienta
 *   **Salidas Múltiples y Claras:** Tablas CSV para análisis posterior, gráficos para visualización rápida y reportes HTML para una presentación completa.
 *   **Eficiencia con Polars:** Manejo rápido de grandes volúmenes de datos gracias a Polars, un motor de procesamiento de DataFrames escrito en Rust.
 *   **Personalización vía CLI:** Adaptabilidad a diferentes necesidades de filtrado y análisis mediante una interfaz de línea de comandos intuitiva.
-*   **Resultados Organizados:** Una estructura de directorios clara para los archivos de salida, facilitando el acceso y la revisión.
+*   **Resultados Organizados:** Una estructura de directorios clara para los archivos de salida (`output/`), facilitando el acceso y la revisión.
 
 ## 🛠️ Arquitectura del Código Fuente (`src/`)
 
@@ -537,7 +558,7 @@ Esta sección ofrece pautas para aquellos que deseen modificar o extender la fun
 
 **8. Limpieza de Código:**
    *   **Eliminar Código Comentado Innecesario:** Si hay bloques de código que han sido comentados y ya no son relevantes o han sido reemplazados por una mejor lógica, es bueno eliminarlas para mejorar la legibilidad.
-   *   **Revisar Logs de Depuración:** Logs muy detallados o específicos de una fase de depuración (`logger.debug(...)` o prints) pueden ser eliminados o comentados si no aportan al entendimiento general del flujo en producción. Los logs `[HEATMAP_DEBUG]` que añadimos recientemente son un buen ejemplo: útiles para depurar, pero podrían eliminarse una vez que la funcionalidad esté estable.
+   *   **Revisar Logs de Depuración:** Logs muy detallados o específicos de una fase de depuración (`logger.debug(...)` o prints) pueden ser eliminados o comentados si no aportan al entendimiento general del flujo en producción.
    *   **Funciones No Utilizadas:** Si hay funciones definidas que no se llaman desde ninguna parte del flujo activo, considera eliminarlas.
 
 ## 🔗 Dependencias Clave
@@ -551,36 +572,22 @@ Esta sección ofrece pautas para aquellos que deseen modificar o extender la fun
 
 ## 🔄 Flujo de Procesamiento de Datos (Resumen Gráfico Simplificado)
 
-[Archivo CSV de Entrada]
-         |
-         v
-[app.py: Carga, Mapeo, Filtro CLI]
-         |
-         v
-[analyzer.py: Pre-procesamiento Base (ej. Columna 'Year')]
-         | df_master_processed
-         v
-[main_logic.run_analysis_pipeline]
-    |
-    |--- Para cada PERIODO (Total, Año_X, Año_Y...):
-    |       |
-    |       |--- Para cada ESTADO (Todas, Completadas, Canceladas):
-    |               |
-    |               |--- df_subset = Filtro(df_periodo_base POR estado)
-    |               |
-    |               |--- Si df_subset NO VACÍO:
-    |                       |
-    |                       v
-    |                       [analyzer.analyze(df_subset)]: Cálculo de Métricas Detalladas
-    |                       |   (devuelve processed_df_for_save, current_metrics)
-    |                       v
-    |                       [reporter.save_outputs(...)]
-    |                           |
-    |                           |--- Guardar Tablas CSV (de current_metrics)
-    |                           |
-    |                           |--- [plotting.py]: Generar Figuras PNG (de processed_df_for_save, current_metrics)
-    |                           |
-    |                           |--- Generar Reporte HTML (con tablas y figuras)
-    |
-    v
-[Resultados en carpeta 'output/']
+```mermaid
+graph TD
+    A[Archivo CSV de Entrada] --> B(app.py: Carga, Mapeo, Filtro CLI);
+    B --> C(analyzer.py: Pre-procesamiento Base <br> ej. Columna 'Year');
+    C -- df_master_processed --> D[main_logic.run_analysis_pipeline];
+    D -- Para cada PERIODO <br> (Total, Año_X, Año_Y...) --> E{Itera Periodo};
+    E -- Para cada ESTADO <br> (Todas, Completadas, Canceladas) --> F{Itera Estado};
+    F -- df_subset = Filtro(df_periodo_base POR estado) --> G{df_subset NO VACÍO?};
+    G -- Sí --> H[analyzer.analyze(df_subset) <br> Cálculo de Métricas Detalladas];
+    H -- processed_df_for_save, current_metrics --> I[reporter.save_outputs(...)];
+    I --> J[Guardar Tablas CSV <br> (de current_metrics)];
+    I --> K[plotting.py: Generar Figuras PNG <br> (de processed_df_for_save, current_metrics)];
+    I --> L[Generar Reporte HTML <br> (con tablas y figuras)];
+    G -- No --> F;
+    F -- Fin Estados --> E;
+    E -- Fin Periodos --> M[Resultados en carpeta 'output/'];
+```
+
+_Diagrama de flujo simplificado que ilustra las etapas principales del procesamiento de datos._
