@@ -574,20 +574,20 @@ Esta sección ofrece pautas para aquellos que deseen modificar o extender la fun
 
 ```mermaid
 graph TD
-    A[Archivo CSV de Entrada] --> B(app.py: Carga, Mapeo, Filtro CLI);
-    B --> C(analyzer.py: Pre-procesamiento Base <br> ej. Columna 'Year');
-    C -- df_master_processed --> D[main_logic.run_analysis_pipeline];
-    D -- Para cada PERIODO <br> (Total, Año_X, Año_Y...) --> E{Itera Periodo};
-    E -- Para cada ESTADO <br> (Todas, Completadas, Canceladas) --> F{Itera Estado};
-    F -- df_subset = Filtro(df_periodo_base POR estado) --> G{df_subset NO VACÍO?};
-    G -- Sí --> H[analyzer.analyze(df_subset) <br> Cálculo de Métricas Detalladas];
-    H -- processed_df_for_save, current_metrics --> I[reporter.save_outputs(...)];
-    I --> J[Guardar Tablas CSV <br> (de current_metrics)];
-    I --> K[plotting.py: Generar Figuras PNG <br> (de processed_df_for_save, current_metrics)];
-    I --> L[Generar Reporte HTML <br> (con tablas y figuras)];
-    G -- No --> F;
-    F -- Fin Estados --> E;
-    E -- Fin Periodos --> M[Resultados en carpeta 'output/'];
+    A["Archivo CSV de Entrada"] --> B("app.py: Carga, Mapeo, Filtro CLI");
+    B --> C("analyzer.py: Pre-procesamiento Base <br> ej. Columna 'Year'");
+    C -- "df_master_processed" --> D["main_logic.run_analysis_pipeline"];
+    D -- "Para cada PERIODO <br> (Total, A&ntilde;o_X, A&ntilde;o_Y...)" --> E{"Itera Periodo"};
+    E -- "Para cada ESTADO <br> (Todas, Completadas, Canceladas)" --> F{"Itera Estado"};
+    F -- "df_subset = Filtro(df_periodo_base POR estado)" --> G{"df_subset NO VAC&Iacute;O?"};
+    G -- "S&iacute;" --> H["analyzer.analyze(df_subset) <br> C&aacute;lculo de M&eacute;tricas Detalladas"];
+    H -- "processed_df_for_save, current_metrics" --> I["reporter.save_outputs(...)"];
+    I --> J["Guardar Tablas CSV <br> (de current_metrics)"];
+    I --> K["plotting.py: Generar Figuras PNG <br> (de processed_df_for_save, current_metrics)"];
+    I --> L["Generar Reporte HTML <br> (con tablas y figuras)"];
+    G -- "No" --> F;
+    F -- "Fin Estados" --> E;
+    E -- "Fin Periodos" --> M["Resultados en carpeta 'output/'"];
 ```
 
 _Diagrama de flujo simplificado que ilustra las etapas principales del procesamiento de datos._
