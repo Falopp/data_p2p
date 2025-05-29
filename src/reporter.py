@@ -353,79 +353,79 @@ def save_outputs(
     # DONE: 2.3 Llamar a plot_violin_price_vs_payment_method
     logger.info(f"Intentando generar Gráficos de Violín (Precio vs Método Pago) para '{output_label} - {status_subdir}'...")
     paths_violin_price_payment = None
-    if df_to_plot_from is not None and not df_to_plot_from.is_empty():
-        try:
-            paths_violin_price_payment = plotting.plot_violin_price_vs_payment_method(
-                df_to_plot_from, 
-                figures_dir, 
-                title_suffix=final_title_suffix, 
-                file_identifier=file_name_suffix_from_cli
-            )
-        except Exception as e_violin_plot:
-            logger.error(f"Error al generar gráficos de violín (Precio vs Método Pago) para '{output_label} - {status_subdir}': {e_violin_plot}.")
-        add_figure_to_html_list(paths_violin_price_payment, "Distribución de Precio por Método de Pago (Violín)")
-    else:
-        logger.info(f"DataFrame principal (df_to_plot_from) vacío para '{output_label} - {status_subdir}', no se generan gráficos de violín.")
+    # if df_to_plot_from is not None and not df_to_plot_from.is_empty():
+    #     try:
+    #         paths_violin_price_payment = plotting.plot_violin_price_vs_payment_method(
+    #             df_to_plot_from, 
+    #             figures_dir, 
+    #             title_suffix=final_title_suffix, 
+    #             file_identifier=file_name_suffix_from_cli
+    #         )
+    #     except Exception as e_violin_plot:
+    #         logger.error(f"Error al generar gráficos de violín (Precio vs Método Pago) para '{output_label} - {status_subdir}': {e_violin_plot}.")
+    #     add_figure_to_html_list(paths_violin_price_payment, "Distribución de Precio por Método de Pago (Violín)")
+    # else:
+    #     logger.info(f"DataFrame principal (df_to_plot_from) vacío para '{output_label} - {status_subdir}', no se generan gráficos de violín.")
 
     # DONE: 2.4 Llamar a plot_yoy_monthly_comparison
     logger.info(f"Intentando generar Gráficos YoY Mensuales para '{output_label} - {status_subdir}'...")
     paths_yoy_total_price = None
     paths_yoy_quantity = None
-    if df_to_plot_from is not None and not df_to_plot_from.is_empty():
-        # YoY para TotalPrice_num
-        if 'TotalPrice_num' in df_to_plot_from.columns:
-            try:
-                paths_yoy_total_price = plotting.plot_yoy_monthly_comparison(
-                    df_to_plot_from, 
-                    figures_dir, 
-                    value_col='TotalPrice_num',
-                    agg_func='sum',
-                    title_suffix=final_title_suffix, 
-                    file_identifier=file_name_suffix_from_cli
-                )
-                add_figure_to_html_list(paths_yoy_total_price, "Comparación Mensual YoY (Suma de TotalPrice_num)")
-            except Exception as e_yoy_tp:
-                logger.error(f"Error al generar gráficos YoY (TotalPrice_num) para '{output_label} - {status_subdir}': {e_yoy_tp}.")
-        else:
-            logger.warning(f"Columna 'TotalPrice_num' no encontrada para YoY en '{output_label} - {status_subdir}'.")
+    # if df_to_plot_from is not None and not df_to_plot_from.is_empty():
+    #     # YoY para TotalPrice_num
+    #     if 'TotalPrice_num' in df_to_plot_from.columns:
+    #         try:
+    #             paths_yoy_total_price = plotting.plot_yoy_monthly_comparison(
+    #                 df_to_plot_from, 
+    #                 figures_dir, 
+    #                 value_col='TotalPrice_num',
+    #                 agg_func='sum',
+    #                 title_suffix=final_title_suffix, 
+    #                 file_identifier=file_name_suffix_from_cli
+    #             )
+    #             add_figure_to_html_list(paths_yoy_total_price, "Comparación Mensual YoY (Suma de TotalPrice_num)")
+    #         except Exception as e_yoy_tp:
+    #             logger.error(f"Error al generar gráficos YoY (TotalPrice_num) para '{output_label} - {status_subdir}': {e_yoy_tp}.")
+    #     else:
+    #         logger.warning(f"Columna 'TotalPrice_num' no encontrada para YoY en '{output_label} - {status_subdir}'.")
 
-        # YoY para Quantity_num
-        if 'Quantity_num' in df_to_plot_from.columns:
-            try:
-                paths_yoy_quantity = plotting.plot_yoy_monthly_comparison(
-                    df_to_plot_from, 
-                    figures_dir, 
-                    value_col='Quantity_num',
-                    agg_func='sum',
-                    title_suffix=final_title_suffix, 
-                    file_identifier=file_name_suffix_from_cli
-                )
-                add_figure_to_html_list(paths_yoy_quantity, "Comparación Mensual YoY (Suma de Quantity_num)")
-            except Exception as e_yoy_qty:
-                logger.error(f"Error al generar gráficos YoY (Quantity_num) para '{output_label} - {status_subdir}': {e_yoy_qty}.")
-        else:
-            logger.warning(f"Columna 'Quantity_num' no encontrada para YoY en '{output_label} - {status_subdir}'.")
-    else:
-        logger.info(f"DataFrame principal (df_to_plot_from) vacío para '{output_label} - {status_subdir}', no se generan gráficos YoY.")
+    #     # YoY para Quantity_num
+    #     if 'Quantity_num' in df_to_plot_from.columns:
+    #         try:
+    #             paths_yoy_quantity = plotting.plot_yoy_monthly_comparison(
+    #                 df_to_plot_from, 
+    #                 figures_dir, 
+    #                 value_col='Quantity_num',
+    #                 agg_func='sum',
+    #                 title_suffix=final_title_suffix, 
+    #                 file_identifier=file_name_suffix_from_cli
+    #             )
+    #             add_figure_to_html_list(paths_yoy_quantity, "Comparación Mensual YoY (Suma de Quantity_num)")
+    #         except Exception as e_yoy_qty:
+    #             logger.error(f"Error al generar gráficos YoY (Quantity_num) para '{output_label} - {status_subdir}': {e_yoy_qty}.")
+    #     else:
+    #         logger.warning(f"Columna 'Quantity_num' no encontrada para YoY en '{output_label} - {status_subdir}'.")
+    # else:
+    #     logger.info(f"DataFrame principal (df_to_plot_from) vacío para '{output_label} - {status_subdir}', no se generan gráficos YoY.")
 
     # DONE: 2.5 Llamar a plot_animated_scatter_price_volume
     logger.info(f"Intentando generar Scatter Animado (Precio/Volumen) para '{output_label} - {status_subdir}'...")
     path_animated_scatter = None
-    if df_to_plot_from is not None and not df_to_plot_from.is_empty():
-        # Usaremos el df_to_plot_from que corresponde al período y estado actual.
-        # La función de ploteo ya está diseñada para manejar Polars y convertir a Pandas.
-        try:
-            path_animated_scatter = plotting.plot_animated_scatter_price_volume(
-                df_to_plot_from, 
-                figures_dir, 
-                title_suffix=final_title_suffix, 
-                file_identifier=file_name_suffix_from_cli
-            )
-        except Exception as e_anim_scatter:
-            logger.error(f"Error al generar scatter animado para '{output_label} - {status_subdir}': {e_anim_scatter}.")
-        add_figure_to_html_list(path_animated_scatter, "Scatter Animado Precio vs. Volumen por Día")
-    else:
-        logger.info(f"DataFrame principal (df_to_plot_from) vacío para '{output_label} - {status_subdir}', no se genera scatter animado.")
+    # if df_to_plot_from is not None and not df_to_plot_from.is_empty():
+    #     # Usaremos el df_to_plot_from que corresponde al período y estado actual.
+    #     # La función de ploteo ya está diseñada para manejar Polars y convertir a Pandas.
+    #     try:
+    #         path_animated_scatter = plotting.plot_animated_scatter_price_volume(
+    #             df_to_plot_from, 
+    #             figures_dir, 
+    #             title_suffix=final_title_suffix, 
+    #             file_identifier=file_name_suffix_from_cli
+    #         )
+    #     except Exception as e_anim_scatter:
+    #         logger.error(f"Error al generar scatter animado para '{output_label} - {status_subdir}': {e_anim_scatter}.")
+    #     add_figure_to_html_list(path_animated_scatter, "Scatter Animado Precio vs. Volumen por Día")
+    # else:
+    #     logger.info(f"DataFrame principal (df_to_plot_from) vacío para '{output_label} - {status_subdir}', no se genera scatter animado.")
 
     # --- Completed Data Plots --- 
     status_col_name_in_pandas = 'status' 

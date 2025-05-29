@@ -69,7 +69,7 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
         price_correction_condition = (
             (pl.col(asset_type_col) == "USDT") &
             (pl.col(fiat_type_col) == "USD") &
-            (pl.col(order_type_col) == "BUY") &
+            # (pl.col(order_type_col) == "BUY") & # Comentamos o eliminamos esta línea para aplicar a BUY y SELL
             (pl.col('Price_num').is_not_null()) &
             (pl.col('Price_num') > 10) # Umbral para precios probablemente mal interpretados
         )
@@ -77,7 +77,7 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
         # Contar cuántas filas se van a afectar antes de la corrección
         rows_to_correct_count = df_processed.filter(price_correction_condition).height
         if rows_to_correct_count > 0:
-            logger.info(f"Detectadas {rows_to_correct_count} filas de USDT/USD BUY con Price_num > 10. Se intentará corregir dividiendo por 1000.")
+            logger.info(f"Detectadas {rows_to_correct_count} filas de USDT/USD con Price_num > 10. Se intentará corregir dividiendo por 1000.")
             
             df_processed = df_processed.with_columns(
                 pl.when(price_correction_condition)
@@ -85,11 +85,11 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
                 .otherwise(pl.col('Price_num'))
                 .alias('Price_num') # Sobrescribe la columna Price_num
             )
-            logger.info(f"Corrección de Price_num para USDT/USD BUY aplicada.")
+            logger.info(f"Corrección de Price_num para USDT/USD aplicada.")
         else:
-            logger.info("No se encontraron filas USDT/USD BUY que necesiten corrección de Price_num (Price_num > 10).")
+            logger.info("No se encontraron filas USDT/USD que necesiten corrección de Price_num (Price_num > 10).")
     else:
-        logger.info("No se aplicó el parche de corrección de Price_num para USDT/USD BUY porque faltan una o más columnas requeridas (asset_type, fiat_type, order_type, Price_num).")
+        logger.info("No se aplicó el parche de corrección de Price_num para USDT/USD porque faltan una o más columnas requeridas (asset_type, fiat_type, Price_num).") # Actualizado mensaje de log
     # --- FIN: Parche para corregir Price_num en USDT/USD BUY ---
 
     if 'MakerFee_num' not in df_processed.columns:
