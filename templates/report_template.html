@@ -4,448 +4,297 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ title }} - Panel P2P Pro</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/swiper/swiper-bundle.min.css" />
     <style>
-        :root {
-            /* Color Palette Definitions */
-            --primary-color: #3498db; /* Main blue */
-            --primary-color-darker: #2980b9; /* Darker blue for interactions */
-            --primary-color-light: #aed6f1; /* Lighter touch of blue for subtle accents */
-
-            --secondary-color: #5D6D7E; /* Bluish gray for secondary text or less prominent elements */
-            --accent-color: #e74c3c; /* Red for important alerts or highlights */
-            --success-color: #2ecc71; /* Green for success indicators */
-
-            --light-gray: #f8f9fa; /* For alternate row backgrounds in tables */
-            --ultra-light-gray: #f1f3f5; /* For subtle backgrounds like filter cards or table headers */
-            --medium-gray: #adb5bd; /* For borders, dividers, and scrollbars */
-            --dark-gray: #34495e; /* Darker, legible main text */
-            --text-color-muted: #7f8c8d; /* Text with less emphasis */
-
-            --background-color: #edf2f7; /* Slightly textured/soft general background */
-            --card-background-color: #ffffff; /* Card background */
-            --text-color: var(--dark-gray); /* Default text color */
-            --text-color-light: #ffffff; /* Light text (e.g., on dark backgrounds) */
-
-            --border-color: #dee2e6; /* Softer, defined borders */
-            --border-color-strong: #ced4da; /* Stronger border color */
-
-            --shadow-color: rgba(44, 62, 80, 0.08); /* More natural and subtle shadow */
-            --shadow-color-hover: rgba(44, 62, 80, 0.15); /* Shadow on hover */
-            --shadow-color-strong: rgba(44, 62, 80, 0.12); /* Stronger shadow */
-
-            --header-bg-color: #2c3e50; /* Dark blue/gray for header and footer */
-            --header-text-color: #ecf0f1; /* Text color for header/footer */
-
-            --font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; /* Font stack */
-            --border-radius-sm: 5px; /* Small border radius */
-            --border-radius-md: 10px; /* Medium border radius */
-            --border-radius-lg: 15px; /* Large border radius */
-
-            /* Spacing Units for consistent layout */
-            --spacing-unit: 8px;
-            --spacing-xs: calc(var(--spacing-unit) * 0.5);   /* 4px */
-            --spacing-sm: var(--spacing-unit);             /* 8px */
-            --spacing-md: calc(var(--spacing-unit) * 2);   /* 16px */
-            --spacing-lg: calc(var(--spacing-unit) * 3);   /* 24px */
-            --spacing-xl: calc(var(--spacing-unit) * 4);   /* 32px */
-        }
-
-        /* Scrollbar Styles (WebKit - Chrome, Safari, Edge) */
-        ::-webkit-scrollbar {
-            width: 10px;
-            height: 10px;
-        }
-        ::-webkit-scrollbar-track {
-            background: var(--ultra-light-gray);
-            border-radius: 10px;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: var(--medium-gray);
-            border-radius: 10px;
-            border: 2px solid var(--ultra-light-gray); /* Creates a "floating" thumb effect */
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: var(--secondary-color);
-        }
-
-        /* Scrollbar Styles (Firefox) */
-        html {
-            scrollbar-width: thin; /* "auto" or "thin" */
-            scrollbar-color: var(--medium-gray) var(--ultra-light-gray); /* thumb and track color */
-        }
-
-        /* Basic Reset and Box Sizing */
-        *, *::before, *::after {
-            box-sizing: border-box;
-        }
-
         body {
-            font-family: var(--font-family);
-            margin: 0;
-            line-height: 1.65; /* Improved readability */
-            background-color: var(--background-color);
-            color: var(--text-color);
+            font-family: 'Inter', sans-serif;
+            background-color: #f7fafc; /* Tailwind gray-100 */
+        }
+        .card { /* Estilo base para otras tarjetas que no sean el slider */
+            background-color: white;
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        .table-responsive table thead th {
+            background-color: #edf2f7; /* Tailwind gray-200 */
+        }
+        .datatable-ready {
+            width: 100%;
+        }
+
+        /* Estilos para el contenedor del slider y los slides */
+        .swiper-container {
+            width: 100%;
+            padding-top: 20px; /* Espacio para el título encima del slider */
+            padding-bottom: 50px; /* Espacio para la paginación y botones */
+            position: relative;
+        }
+        .swiper-slide {
+            background-color: #ffffff; /* Fondo blanco para cada slide */
+            border-radius: 0.75rem; /* Tailwind rounded-xl */
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); /* Sombra suave */
             display: flex;
             flex-direction: column;
-            min-height: 100vh; /* Ensure footer stays at bottom */
-            font-weight: 400;
-            padding-top: 90px; /* Space for the fixed header, adjust if header height changes */
-        }
-
-        /* Accessibility: Visible focus states for keyboard navigation */
-        :focus-visible {
-            outline: 2px solid var(--primary-color);
-            outline-offset: 2px;
-            box-shadow: 0 0 0 4px rgba(52, 152, 219, 0.3);
-        }
-
-        /* Dashboard Header Styles */
-        .dashboard-header {
-            background-color: var(--card-background-color); /* Cleaner white background */
-            color: var(--dark-gray); /* Dark text on light background */
-            padding: var(--spacing-md) var(--spacing-xl);
+            align-items: center;
+            justify-content: flex-start; /* Alinea contenido al inicio */
             text-align: center;
-            box-shadow: 0 2px 8px var(--shadow-color); /* Subtle shadow */
-            border-bottom: 3px solid var(--primary-color); /* Accent border */
-            position: fixed; /* Sticky header */
+            padding: 1.5rem; /* Tailwind p-6 */
+            box-sizing: border-box;
+            /* Altura: Considerar autoHeight en Swiper o una altura mínima/fija si es necesario */
+             min-height: 500px; /* Altura mínima para asegurar espacio para el gráfico */
+        }
+        .swiper-slide .slide-title {
+            font-size: 1.25rem; /* Tailwind text-xl */
+            font-weight: 600; /* Tailwind font-semibold */
+            color: #374151; /* Tailwind gray-700 */
+            margin-bottom: 1rem; /* Tailwind mb-4 */
+            width: 100%;
+        }
+        .swiper-slide .figure-content-wrapper {
+            width: 100%;
+            height: calc(100% - 3rem); /* Ajustar para que el contenido del gráfico ocupe el espacio restante */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .swiper-slide img.figure-image, 
+        .swiper-slide .plotly-iframe-wrapper {
+            max-width: 100%;
+            max-height: 100%; /* Asegurar que el contenido no desborde el slide */
+            object-fit: contain; /* Para imágenes, asegura que se vean completas */
+        }
+         .swiper-slide .plotly-iframe-wrapper {
+            width: 100%;
+            /* height: 450px; */ /* Altura fija para iframes, ajustar según necesidad */
+            padding-top: 75%; /* Aspect ratio 4:3 (3/4 * 100) - Ajusta este valor para diferentes aspect ratios */
+            position: relative; /* Necesario para el posicionamiento absoluto del iframe hijo */
+            overflow: hidden;
+            border-radius: 0.5rem; /* Tailwind rounded-lg */
+            border: 1px solid #e5e7eb; /* Tailwind border-gray-200 */
+        }
+        .swiper-slide iframe {
+            position: absolute; /* Posiciona el iframe dentro del wrapper */
             top: 0;
             left: 0;
             width: 100%;
-            z-index: 1000; /* Ensure header is above other content */
-            height: 90px; /* Fixed height, corresponds to body padding-top */
-            display: flex;
-            flex-direction: column;
-            justify-content: center; /* Vertically center content in header */
+            height: 100%;
+            border: 0; /* Quita el borde del iframe si no es necesario */
         }
-        .dashboard-header h1 {
-            margin: 0 0 var(--spacing-xs) 0;
-            font-size: 2.4em;
-            font-weight: 700; /* Bolder title */
-            color: var(--primary-color); /* Title color matches primary accent */
+        .swiper-slide .iframe-link {
+            font-size: 0.75rem; /* Tailwind text-xs */
+            color: #3b82f6; /* Tailwind text-blue-500 */
+            margin-top: 0.5rem; /* Tailwind mt-2 */
+            display: block;
         }
-        .dashboard-header .timestamp {
-            font-size: 0.9em;
-            color: var(--text-color-muted); /* Muted color for timestamp */
-            font-weight: 400;
+        .swiper-slide .iframe-link:hover {
+            color: #1d4ed8; /* Tailwind text-blue-700 */
+            text-decoration: underline;
         }
 
-        /* Main Dashboard Container */
-        .dashboard-container {
-            flex: 1; /* Allows footer to push to bottom */
-            max-width: 1600px; /* Increased max-width for wider screens */
-            margin: var(--spacing-lg) auto; /* Centering and top/bottom margin */
-            padding: var(--spacing-lg); /* Padding inside the container */
-            width: 100%;
+
+        /* Estilos para la navegación de Swiper */
+        .swiper-button-next, .swiper-button-prev {
+            color: #3498db; /* Color primario para los botones */
+            background-color: rgba(255, 255, 255, 0.8);
+            border-radius: 50%;
+            width: 44px;
+            height: 44px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .swiper-button-next:after, .swiper-button-prev:after {
+            font-size: 1.25rem; /* Tamaño de los iconos de flecha */
+            font-weight: bold;
+        }
+        .swiper-pagination-bullet-active {
+            background-color: #3498db; /* Color primario para la paginación activa */
         }
 
-        /* Grid Layout for Dashboard Cards */
-        .dashboard-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); /* Responsive columns */
-            gap: var(--spacing-lg); /* Gap between grid items */
-        }
-
-        /* Card Styles */
-        .card {
-            background-color: var(--card-background-color);
-            border-radius: var(--border-radius-md); /* Rounded corners */
-            box-shadow: 0 6px 18px var(--shadow-color); /* Default card shadow */
-            padding: var(--spacing-lg);
-            overflow: hidden; /* Ensures content respects border radius */
-            transition: transform 0.25s ease-out, box-shadow 0.25s ease-out; /* Smooth hover effect */
-            border: 1px solid var(--border-color); /* Subtle border for definition */
-        }
-        .card:hover {
-            transform: translateY(-5px); /* Slight lift on hover */
-            box-shadow: 0 10px 25px var(--shadow-color-hover); /* Enhanced shadow on hover */
-        }
-        
-        /* Full Width Card Modifier */
-        .card.full-width {
-            grid-column: 1 / -1; /* Span all columns in the grid */
-        }
-
-        /* Card Header Styles */
-        .card-header {
-            font-size: 1.5em;
-            font-weight: 700; /* Bold card titles */
-            color: var(--dark-gray); /* Darker text for card headers */
-            margin-top: 0;
-            margin-bottom: var(--spacing-md);
-            padding-bottom: var(--spacing-md);
-            border-bottom: 1px solid var(--border-color); /* Separator line */
-            display: flex;
-            align-items: center;
-        }
-        
-        /* Special header styling for the filters list container */
-        .filters-list-container .card-header {
-             border-bottom: none; /* No border if the list is the main content */
-             padding-bottom: var(--spacing-sm);
-        }
-
-        /* Applied Filters List Styles */
-        .filters-list {
-            list-style-type: none; /* Remove default list styling */
-            padding-left: 0;
-            margin-bottom: 0;
-            display: flex; /* Arrange filters in a row */
-            flex-wrap: wrap; /* Allow filters to wrap to next line */
-            gap: var(--spacing-sm); /* Gap between filter items */
-        }
-        .filters-list li {
-            font-size: 0.9em;
-            padding: var(--spacing-xs) var(--spacing-sm);
-            border-radius: var(--border-radius-sm);
-            background-color: var(--ultra-light-gray); /* Light background for filter tags */
-            color: var(--secondary-color);
-            border: 1px solid var(--border-color);
-            line-height: 1.4; /* Adjust line height for tags */
-        }
-        .filters-list strong {
-            color: var(--primary-color-darker); /* Highlight filter name */
-            font-weight: 600;
-        }
-
-        /* Table Styles */
-        table {
-            width: 100%;
-            border-collapse: collapse; /* Modern table look */
-            margin-bottom: 0;
-            font-size: 0.95em; /* Slightly larger table text */
-        }
-        th, td {
-            border: none; /* Remove individual cell borders */
-            border-bottom: 1px solid var(--border-color); /* Horizontal lines for rows */
-            padding: var(--spacing-sm) var(--spacing-md); /* Cell padding */
-            text-align: left;
-            vertical-align: middle;
-        }
-        th { /* Table Header Cells */
-            background-color: var(--ultra-light-gray);
-            color: var(--dark-gray);
-            font-weight: 600;
-            text-transform: uppercase; /* Uppercase header text */
-            font-size: 0.8em; /* Smaller font for headers */
-            letter-spacing: 0.75px; /* Spacing for header text */
-            border-top: 1px solid var(--border-color-strong); /* Top border for header */
-            border-bottom-width: 2px; /* Thicker bottom border for header */
-            border-bottom-color: var(--primary-color-light); /* Accent color for header bottom border */
-        }
-        tr:last-child td { /* Remove bottom border from last row cells */
-            border-bottom: none;
-        }
-        tr:nth-child(even) td { /* Zebra striping for table rows */
-            background-color: var(--light-gray);
-        }
-        tr:hover td { /* Hover effect for table rows */
-            background-color: var(--primary-color-light);
-            color: var(--primary-color-darker);
-        }
-        .table-responsive { /* Wrapper for scrollable tables */
-            overflow-x: auto; /* Allow horizontal scrolling on small screens */
-            border: 1px solid var(--border-color);
-            border-radius: var(--border-radius-md);
-            box-shadow: 0 2px 5px var(--shadow-color); /* Subtle shadow for table container */
-        }
-
-        /* Figure and Image Styles */
-        .figure-content {
-            margin-top: var(--spacing-sm);
-        }
-        .figure-content img {
-            max-width: 100%; /* Responsive images */
+        .figure-image { /* Estilo general para imágenes fuera del slider si las hubiera */
+            max-width: 100%;
             height: auto;
-            display: block; /* Remove extra space below image */
-            margin: 0 auto var(--spacing-md) auto; /* Center image and add bottom margin */
-            border: 1px solid var(--border-color);
-            border-radius: var(--border-radius-md);
-            background-color: #fff; /* White background if image has transparency */
-            box-shadow: 0 4px 8px var(--shadow-color-strong); /* More pronounced shadow for images */
-        }
-        .figure-content p { /* Caption for figures/images */
-            text-align: center;
-            font-style: italic;
-            color: var(--text-color-muted);
-            font-size: 0.9em;
-            margin-top: var(--spacing-xs);
-        }
-
-        /* Dashboard Footer Styles */
-        .dashboard-footer {
-            text-align: center;
-            padding: var(--spacing-lg);
-            background-color: var(--header-bg-color); /* Matches header background */
-            color: var(--header-text-color); /* Matches header text color */
-            font-size: 0.9em;
-            margin-top: auto; /* Pushes footer to the bottom of the page */
-            border-top: 3px solid var(--primary-color); /* Accent border, matches header */
-        }
-
-        /* Empty State Styles (when no data is available) */
-        .empty-state {
-            text-align: center;
-            padding: var(--spacing-xl) var(--spacing-lg);
-            color: var(--secondary-color);
-            font-style: italic;
-            background-color: var(--ultra-light-gray); /* Light background for emphasis */
-            border-radius: var(--border-radius-md);
-            border: 1px dashed var(--medium-gray); /* Dashed border */
-            font-size: 1.1em;
-        }
-        /* Optional: Add an icon or emoji to empty state using ::before
-        .empty-state::before {
-            content: "😕"; 
-            display: block; 
-            font-size: 2em; 
-            margin-bottom: var(--spacing-sm);
-        }
-        */
-
-        /* Responsive Media Queries */
-        @media (max-width: 1200px) { /* Tablet and smaller desktop */
-            .dashboard-grid {
-                grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-            }
-             .dashboard-header h1 {
-                font-size: 2em;
-            }
-        }
-
-        @media (max-width: 768px) { /* Mobile devices */
-            body {
-                padding-top: 75px; /* Adjust for smaller fixed header */
-            }
-            .dashboard-header {
-                padding: var(--spacing-sm) var(--spacing-md);
-                height: 75px; /* Reduced header height */
-            }
-            .dashboard-header h1 {
-                font-size: 1.6em;
-            }
-            .dashboard-header .timestamp {
-                font-size: 0.8em;
-            }
-            .dashboard-container {
-                margin: var(--spacing-md) auto;
-                padding: var(--spacing-md);
-            }
-            .dashboard-grid {
-                grid-template-columns: 1fr; /* Single column layout */
-                gap: var(--spacing-md);
-            }
-            .card {
-                padding: var(--spacing-md);
-            }
-            .card-header {
-                font-size: 1.3em;
-            }
-            th, td {
-                padding: var(--spacing-sm) var(--spacing-sm); /* Reduced padding in tables */
-            }
-            .filters-list {
-                gap: var(--spacing-xs); /* Smaller gap for filter tags */
-            }
-            .filters-list li {
-                font-size: 0.85em;
-                padding: calc(var(--spacing-xs) * 0.8) var(--spacing-sm);
-            }
-        }
-
-        @media (max-width: 480px) { /* Small mobile devices */
-            body {
-                padding-top: 65px; /* Further adjust for even smaller header */
-            }
-            .dashboard-header {
-                height: 65px; /* Further reduced header height */
-            }
-            .dashboard-header h1 {
-                 font-size: 1.4em;
-            }
-            .card-header {
-                font-size: 1.2em;
-            }
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
         }
     </style>
 </head>
-<body>
-    <header class="dashboard-header">
-        <h1>{{ title }}</h1>
-        <div class="timestamp">Generado el: {{ generation_timestamp }}</div>
+<body class="antialiased text-gray-800">
+
+    <header class="bg-white shadow-md fixed top-0 left-0 right-0 z-50">
+        <div class="container mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-20">
+                <div>
+                    <h1 class="text-xl sm:text-2xl lg:text-3xl font-bold text-blue-600">{{ title }}</h1>
+                    <p class="text-sm text-gray-500">Generado el: {{ generation_timestamp }}</p>
+                </div>
+            </div>
+        </div>
     </header>
 
-    <div class="dashboard-container">
-        <div class="dashboard-grid">
-            
+    <main class="pt-24">
+        <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
             {% if applied_filters %}
-            <div class="card filters-list-container full-width">
-                <h2 class="card-header">Filtros Aplicados</h2>
-                <ul class="filters-list">
+            <div class="card mb-8 p-6">
+                <h2 class="text-xl font-semibold text-gray-700 mb-4 border-b pb-2">Filtros Aplicados</h2>
+                <ul class="flex flex-wrap gap-2">
                     {% for filter_name, filter_values in applied_filters.items() %}
-                        <li><strong>{{ filter_name }}:</strong> {{ filter_values | join(", ") if filter_values is iterable and filter_values is not string else filter_values }}</li>
+                        <li class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm">
+                            <strong class="font-medium">{{ filter_name }}:</strong> {{ filter_values | join(", ") if filter_values is iterable and filter_values is not string else filter_values }}
+                        </li>
                     {% endfor %}
                 </ul>
             </div>
             {% endif %}
 
             {% if sales_summary_data and sales_summary_data.sales_summary_all_assets_fiat_detailed %}
-            <div class="card full-width">
-                <h2 class="card-header">Resumen de Ventas</h2>
+            <div class="card mb-8 p-6">
+                <h2 class="text-xl font-semibold text-gray-700 mb-4 border-b pb-2">Resumen de Ventas</h2>
                 {% if sales_summary_data.sales_summary_all_assets_fiat_detailed_html %}
-                    <h3 style="font-weight: 600; font-size: 1.1em; margin-bottom: var(--spacing-sm); color: var(--secondary-color);">Detalle por Activo y Fiat Recibida:</h3>
-                    <div class="table-responsive">
+                    <h3 class="text-md font-medium text-gray-600 mb-2">Detalle por Activo y Fiat Recibida:</h3>
+                    <div class="table-responsive overflow-x-auto rounded-lg border">
                         {{ sales_summary_data.sales_summary_all_assets_fiat_detailed_html | safe }}
                     </div>
                 {% else %}
-                    <p class="empty-state">No hay datos de resumen de ventas disponibles para los filtros aplicados.</p>
+                    <p class="text-gray-500 italic">No hay datos de resumen de ventas disponibles para los filtros aplicados.</p>
                 {% endif %}
+            </div>
+            {% endif %}
+            
+            {% if whale_trades_data and whale_trades_table_html %}
+            <div class="card mb-8 p-6">
+                <h2 class="text-xl font-semibold text-gray-700 mb-4 border-b pb-2">"Whale Trades" (Operaciones de Gran Volumen)</h2>
+                 <div class="table-responsive overflow-x-auto rounded-lg border">
+                    {{ whale_trades_table_html | safe }}
+                </div>
+            </div>
+            {% endif %}
+
+            {% if event_comparison_data and event_comparison_table_html %}
+            <div class="card mb-8 p-6">
+                <h2 class="text-xl font-semibold text-gray-700 mb-3">Análisis Comparativo (Evento: {{ event_date_for_report }})</h2>
+                <p class="text-sm text-gray-500 mb-4">Comparación de métricas 24 horas antes y después del evento.</p>
+                 <div class="table-responsive overflow-x-auto rounded-lg border">
+                    {{ event_comparison_table_html | safe }}
+                </div>
             </div>
             {% endif %}
 
             {% if included_tables %}
                 {% for table_item in included_tables %}
-                <div class="card full-width"> <h2 class="card-header">{{ table_item.title }}</h2>
+                <div class="card mb-8 p-6">
+                    <h2 class="text-xl font-semibold text-gray-700 mb-4 border-b pb-2">{{ table_item.title }}</h2>
                     {% if table_item.html %}
-                        <div class="table-responsive">
+                        <div class="table-responsive overflow-x-auto rounded-lg border">
                             {{ table_item.html | safe }}
                         </div>
                     {% else %}
-                        <p class="empty-state">Tabla no disponible o vacía.</p>
+                        <p class="text-gray-500 italic">Tabla no disponible o vacía.</p>
                     {% endif %}
                 </div>
                 {% endfor %}
             {% endif %}
 
             {% if included_figures %}
-                {% for fig_item in included_figures %}
-                <div class="card"> <h2 class="card-header">{{ fig_item.title }}</h2>
-                    <div class="figure-content">
-                    {% if fig_item.path %}
-                        <img src="{{ fig_item.path }}" alt="{{ fig_item.title }}">
-                        {% if fig_item.caption %}
-                            <p>{{ fig_item.caption }}</p>
-                        {% endif %}
-                    {% else %}
-                        <p class="empty-state">Gráfico no disponible.</p>
-                    {% endif %}
+            <div class="mb-8"> <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">Visualizaciones Gráficas</h2>
+                <div class="swiper-container card p-4 md:p-6"> <div class="swiper-wrapper">
+                        {% for fig_item in included_figures %}
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">{{ fig_item.title }}</h3>
+                            <div class="figure-content-wrapper">
+                            {% if fig_item.path %}
+                                {% if fig_item.type == 'html' %}
+                                    <div class="plotly-iframe-wrapper">
+                                        <iframe src="{{ fig_item.path }}" frameborder="0" class="no-swiping"></iframe>
+                                    </div>
+                                {% else %}
+                                    <img src="{{ fig_item.path }}" alt="{{ fig_item.title }}" class="figure-image">
+                                {% endif %}
+                            {% else %}
+                                <div class="flex items-center justify-center h-full bg-gray-100 rounded-lg">
+                                    <p class="text-gray-500 italic">Gráfico no disponible.</p>
+                                </div>
+                            {% endif %}
+                            </div>
+                            {% if fig_item.type == 'html' and fig_item.path %}
+                            <p>
+                                <a href="{{ fig_item.path }}" target="_blank" class="iframe-link">
+                                    Abrir en nueva pestaña
+                                </a>
+                            </p>
+                            {% endif %}
+                            {% if fig_item.caption %}
+                                <p class="text-xs text-gray-500 mt-2 text-center italic">{{ fig_item.caption }}</p>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
                     </div>
+                    <div class="swiper-pagination"></div>
+                    <div class="swiper-button-next"></div>
+                    <div class="swiper-button-prev"></div>
                 </div>
-                {% endfor %}
-            {% endif %}
-
-            {% if not applied_filters and not (sales_summary_data and sales_summary_data.sales_summary_all_assets_fiat_detailed) and not included_tables and not included_figures %}
-            <div class="card full-width">
-                <h2 class="card-header">Informe Vacío</h2>
-                <p class="empty-state">No hay datos para mostrar con los criterios seleccionados o no se ha generado ningún contenido.</p>
             </div>
             {% endif %}
-        </div>
-    </div>
 
-    <footer class="dashboard-footer">
-        Reporte P2P Pro &copy; {{ current_year }} </footer>
+            {% if not applied_filters and not (sales_summary_data and sales_summary_data.sales_summary_all_assets_fiat_detailed) and not included_tables and not included_figures and not whale_trades_data and not event_comparison_data %}
+            <div class="card p-6 text-center">
+                <h2 class="text-xl font-semibold text-gray-700 mb-3">Informe Vacío</h2>
+                <p class="text-gray-500">No hay datos para mostrar con los criterios seleccionados o no se ha generado ningún contenido.</p>
+            </div>
+            {% endif %}
+
+        </div>
+    </main>
+
+    <footer class="bg-gray-800 text-gray-300 py-8 text-center">
+        <p>Reporte P2P Pro &copy; {{ current_year }}</p>
+    </footer>
+
+    <script src="https://unpkg.com/swiper/swiper-bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            if (document.querySelector('.swiper-container')) {
+                var swiper = new Swiper('.swiper-container', {
+                    // Opciones de Swiper
+                    slidesPerView: 1,
+                    spaceBetween: 30,
+                    loop: false, // Poner en true si quieres loop infinito
+                    grabCursor: true,
+                    centeredSlides: true,
+                    autoHeight: true, // Descomentar si quieres que la altura se ajuste al slide actual
+                    pagination: {
+                        el: '.swiper-pagination',
+                        clickable: true,
+                    },
+                    navigation: {
+                        nextEl: '.swiper-button-next',
+                        prevEl: '.swiper-button-prev',
+                    },
+                    // Para evitar que el swipe del slider interfiera con el swipe/pan de Plotly
+                    noSwiping: true, // No swiping en general
+                    noSwipingClass: 'no-swiping', // Elementos con esta clase no permitirán swipe
+                    // Podrías necesitar ajustar `watchSlidesVisibility` y `watchSlidesProgress` si usas lazy loading
+                });
+            }
+        });
+    </script>
+    
+    <!--
+    <script src="https://code.jquery.com/jquery-3.7.0.js"></script>
+    <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/jquery.dataTables.min.css">
+    <script>
+        $(document).ready(function() {
+            $('.datatable-ready').DataTable({
+                responsive: true,
+            });
+        });
+    </script>
+    -->
+
 </body>
 </html>
