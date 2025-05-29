@@ -151,7 +151,7 @@ La herramienta se controla mediante argumentos de línea de comandos:
                 *   Conversión de montos y precios a numérico.
                 *   Creación de columnas de tiempo detalladas (hora, día, mes, año).
                 *   Cálculo de estadísticas agregadas (por activo, por fiat, por estado, etc.).
-                *   Cálculo de métricas financieras (VWAP, High/Low, P&L si aplica).
+                *   Cálculo de métricas financieras (High/Low, P&L si aplica).
             *   Se invoca `reporter.save_outputs` para generar:
                 *   Tablas de resumen en formato CSV.
                 *   Gráficos y visualizaciones en formato PNG.
@@ -312,7 +312,6 @@ El módulo `analyzer.py` calcula un diccionario de DataFrames de Polars (luego c
 *   **`payment_method_counts`**: Conteo de operaciones por `payment_method` y `fiat_type`.
 *   **`sales_summary_all_assets_fiat_detailed`**: Resumen de ventas (operaciones 'Completed' y marcadas como venta en `sell_operation` config), agrupado por `asset_type` (vendido) y `fiat_type` (recibido). Calcula `Total Asset Sold`, `Total Fiat Received`, y `Average Sell Price`.
 *   **Métricas Avanzadas (si activadas o presentes):**
-    *   `vwap_daily`: Precio Promedio Ponderado por Volumen, calculado diariamente.
     *   `intraday_high_low`: Precios máximos y mínimos por día.
     *   `time_between_trades_stats`: Estadísticas sobre el tiempo entre operaciones consecutivas.
     *   `rolling_pl_sharpe`: (Si se implementa `finance_utils.py`) P&L y Ratio de Sharpe rodante.
@@ -325,7 +324,6 @@ El módulo `analyzer.py` calcula un diccionario de DataFrames de Polars (luego c
 Este proyecto ha sido recientemente actualizado con una serie de mejoras significativas y nuevas funcionalidades. A continuación, se presenta un resumen de los avances:
 
 **Métricas Avanzadas (en `src/analyzer.py`):**
-*   **VWAP Diario:** Calculado y almacenado.
 *   **High / Low Intradía:** Implementado.
 *   **Time-Between-Trades (TBT):** Implementado con percentiles.
 *   **Rolling P&L + Sharpe (7 días):** Implementado utilizando un nuevo módulo `src/finance_utils.py`.

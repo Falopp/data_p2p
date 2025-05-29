@@ -824,50 +824,6 @@ def save_outputs(
             df_usd_pair = pd.DataFrame()
             logger.info(f"df_usd_pair inicializado a DataFrame vacío porque no se definió previamente.")
 
-        # --- Nuevo Gráfico: VWAP (Precio Promedio Ponderado por Volumen) a lo largo del Tiempo ---
-        logger.info(f"Generando gráficos VWAP para '{output_label} - {status_subdir}'...")
-        time_col_vwap = config.get('column_names', {}).get('match_time_local_internal', 'Match_time_local')
-        price_col_vwap = config.get('column_names', {}).get('price_num_internal', 'Price_num')
-        qty_col_vwap = config.get('column_names', {}).get('quantity_num_internal', 'Quantity_num')
-        # asset_col_name y fiat_col_name ya están definidos arriba
-
-        required_cols_for_vwap = [time_col_vwap, price_col_vwap, qty_col_vwap, asset_col_name, fiat_col_name]
-        if all(col in df_completed_for_plots_pandas.columns for col in required_cols_for_vwap):
-            # VWAP para USDT/USD
-            paths_vwap_usd = plotting.plot_vwap_over_time(
-                df_data_pd=df_completed_for_plots_pandas, # Ya filtrado por 'Completed'
-                time_col=time_col_vwap,
-                price_col=price_col_vwap,
-                quantity_col=qty_col_vwap,
-                asset_col=asset_col_name,
-                fiat_col=fiat_col_name,
-                out_dir=figures_dir_usd, # Guardar en subdirectorio usd_usdt
-                title_suffix=final_title_suffix,
-                file_identifier=f"{file_name_suffix_from_cli}" # La función ya añade asset/fiat al nombre
-            )
-            add_figure_to_html_list(paths_vwap_usd, "VWAP Diario (USDT/USD)", subfolder="usd_usdt")
-
-            # VWAP para USDT/UYU
-            if not df_uyu_pair.empty: # df_uyu_pair se define arriba para los boxplots
-                paths_vwap_uyu = plotting.plot_vwap_over_time(
-                    df_data_pd=df_uyu_pair, # Pasar el DataFrame ya filtrado para UYU
-                    time_col=time_col_vwap,
-                    price_col=price_col_vwap,
-                    quantity_col=qty_col_vwap,
-                    asset_col=asset_col_name, 
-                    fiat_col=fiat_col_name,
-                    out_dir=figures_dir_uyu, # Guardar en subdirectorio uyu
-                    title_suffix=final_title_suffix,
-                    file_identifier=f"{file_name_suffix_from_cli}" 
-                )
-                add_figure_to_html_list(paths_vwap_uyu, "VWAP Diario (USDT/UYU)", subfolder="uyu")
-            else:
-                logger.info(f"No hay datos USDT/UYU completados para gráfico VWAP en '{output_label} - {status_subdir}'.")
-
-        else:
-            missing_cols_str = ", ".join([col for col in required_cols_for_vwap if col not in df_completed_for_plots_pandas.columns])
-            logger.warning(f"Faltan columnas requeridas para gráfico VWAP en '{output_label} - {status_subdir}': {missing_cols_str}")
-
         # --- Nuevo Gráfico: Volumen de Compra vs. Venta Mensual ---
         logger.info(f"Generando gráficos de Volumen Compra vs. Venta Mensual para '{output_label} - {status_subdir}'...")
         time_col_buysell = config.get('column_names', {}).get('match_time_local_internal', 'Match_time_local')

@@ -323,349 +323,6 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
     else:
         metrics['side_counts'] = pl.Series(dtype=pl.datatypes.UInt32).to_frame()
 
-    # DONE: 1. VWAP diario
-    logger.info("Calculando VWAP diario...")
-    if not df_processed.is_empty() and \
-       'Match_time_local' in df_processed.columns and \
-       'Price_num' in df_processed.columns and \
-       'Quantity_num' in df_processed.columns and \
-       df_processed['Match_time_local'].null_count() == 0 and \
-       df_processed['Price_num'].null_count() == 0 and \
-       df_processed['Quantity_num'].null_count() == 0:
-        
-        df_vwap = df_processed.group_by(pl.col('Match_time_local').dt.date().alias('date')) \
-                              .agg(
-                                  (pl.col('Price_num') * pl.col('Quantity_num')).sum().alias('total_price_volume'),
-                                  pl.col('Quantity_num').sum().alias('total_volume')
-                              ) \
-                              .filter(pl.col('total_volume') != 0) \
-                              .with_columns(
-                                  (pl.col('total_price_volume') / pl.col('total_volume')).alias('vwap')
-                              ) \
-                              .select(['date', 'vwap', 'total_volume']) \
-                              .sort('date')
-        
-        metrics['vwap_daily'] = df_vwap
-        logger.info("VWAP diario calculado y añadido a las métricas.")
-    else:
-        logger.warning("No se puede calcular VWAP diario. Faltan columnas requeridas (Match_time_local, Price_num, Quantity_num) o contienen nulos.")
-        metrics['vwap_daily'] = pl.DataFrame()
-
-    # DONE: 1.2 High / Low intradía
-    logger.info("Calculando High/Low intradía...")
-    if not df_processed.is_empty() and \
-       'Match_time_local' in df_processed.columns and \
-       'Price_num' in df_processed.columns and \
-       df_processed['Match_time_local'].dtype == pl.Datetime(time_unit='us', time_zone='America/Montevideo') and \
-       df_processed['Price_num'].null_count() == 0:
-
-        # DONE: Asegurar que el DataFrame esté ordenado por la columna de índice dinámico
-        df_processed_sorted_for_dynamic = df_processed.sort("Match_time_local")
-
-        df_intraday_hl = df_processed_sorted_for_dynamic.group_by_dynamic(
-            index_column="Match_time_local",
-            every="1d",
-            by='asset_type', # Agrupamos también por asset_type para tener High/Low por cada activo
-            closed='left'
-        ).agg([
-            pl.col('Price_num').max().alias('high_price'),
-            pl.col('Price_num').min().alias('low_price'),
-            pl.col('Price_num').mean().alias('avg_price_day'), # Añadimos precio promedio diario como extra
-            pl.count().alias('trades_count_day')
-        ]).sort("Match_time_local")
-
-        metrics['intraday_high_low'] = df_intraday_hl
-        logger.info("High/Low intradía calculado y añadido a las métricas.")
-    else:
-        logger.warning("No se puede calcular High/Low intradía. Faltan columnas (Match_time_local, Price_num) o Match_time_local no es Datetime con timezone o Price_num tiene nulos.")
-        metrics['intraday_high_low'] = pl.DataFrame()
-
-    # DONE: 1.3 Time-Between-Trades (TBT)
-    logger.info("Calculando Time-Between-Trades (TBT)...")
-    if not df_processed.is_empty() and \
-       'Match_time_utc_dt' in df_processed.columns and \
-       df_processed['Match_time_utc_dt'].dtype == pl.Datetime(time_unit='us', time_zone='UTC') and \
-       df_processed.height > 1: # Necesitamos al menos 2 trades para calcular TBT
-
-        # Aseguramos que el DataFrame esté ordenado por tiempo para el cálculo de diff
-        df_tbt_calc = df_processed.sort('Match_time_utc_dt')
-
-        # Calculamos la diferencia entre timestamps consecutivos
-        # El resultado de diff() es Duration, lo convertimos a segundos totales.
-        tbt_series = df_tbt_calc['Match_time_utc_dt'].diff().dt.total_seconds().drop_nulls()
-
-        if not tbt_series.is_empty():
-            tbt_stats_dict = {
-                'tbt_mean_seconds': [tbt_series.mean()],
-                'tbt_median_seconds': [tbt_series.median()],
-                'tbt_min_seconds': [tbt_series.min()],
-                'tbt_max_seconds': [tbt_series.max()],
-                'tbt_std_seconds': [tbt_series.std()],
-                'tbt_p05_seconds': [tbt_series.quantile(0.05)],
-                'tbt_p95_seconds': [tbt_series.quantile(0.95)],
-                'tbt_count': [tbt_series.len()]
-            }
-            metrics['tbt_stats'] = pl.DataFrame(tbt_stats_dict)
-            logger.info("Estadísticas TBT calculadas y añadidas a las métricas.")
-        else:
-            logger.warning("Series TBT resultó vacía después del cálculo. No se añadirán estadísticas TBT.")
-            metrics['tbt_stats'] = pl.DataFrame({
-                'tbt_mean_seconds': [None],
-                'tbt_median_seconds': [None],
-                'tbt_min_seconds': [None],
-                'tbt_max_seconds': [None],
-                'tbt_std_seconds': [None],
-                'tbt_p05_seconds': [None],
-                'tbt_p95_seconds': [None],
-                'tbt_count': [0]
-            })
-
-    else:
-        logger.warning("No se puede calcular TBT. Se requiere la columna 'Match_time_utc_dt' (Datetime UTC) y al menos 2 trades.")
-        # Crear un DataFrame vacío con la estructura esperada si no se puede calcular
-        metrics['tbt_stats'] = pl.DataFrame({
-            'tbt_mean_seconds': [None],
-            'tbt_median_seconds': [None],
-            'tbt_min_seconds': [None],
-            'tbt_max_seconds': [None],
-            'tbt_std_seconds': [None],
-            'tbt_p05_seconds': [None],
-            'tbt_p95_seconds': [None],
-            'tbt_count': [0]
-        })
-
-    # DONE: 1.4 Rolling P&L + Sharpe (7 días)
-    logger.info("Calculando Rolling P&L (7 días) y Sharpe Ratio...")
-    if 'vwap_daily' in metrics and not metrics['vwap_daily'].is_empty() and 'vwap' in metrics['vwap_daily'].columns:
-        df_vwap_daily = metrics['vwap_daily']
-        
-        # Asegurarse que la columna vwap es Float64 para el cálculo de retornos
-        if df_vwap_daily['vwap'].dtype != pl.Float64:
-            df_vwap_daily = df_vwap_daily.with_columns(pl.col('vwap').cast(pl.Float64))
-
-        daily_returns = finance_utils.calculate_daily_returns(df_vwap_daily['vwap'])
-        
-        # Añadir retornos al df_vwap_daily para referencia si es necesario
-        # Necesitamos alinear los retornos con las fechas. daily_returns tendrá un nulo al principio.
-        if not daily_returns.is_empty():
-            # La serie daily_returns ya tiene la longitud correcta (misma que df_vwap_daily)
-            # y tiene un nulo al principio debido a .shift(1) en su cálculo.
-            df_vwap_daily = df_vwap_daily.with_columns(daily_returns.alias('daily_returns'))
-            
-            # Calcular P&L rodante de 7 días
-            # Usar daily_returns.drop_nulls() para el cálculo de P&L, ya que no puede manejar el nulo inicial.
-            rolling_pnl_7d = finance_utils.calculate_rolling_pnl(daily_returns.drop_nulls(), window_size=7)
-            
-            # El P&L rodante también tendrá nulos al principio, alinear con fechas
-            if not rolling_pnl_7d.is_empty():
-                # El P&L rodante con ventana 7 sobre N retornos, tendrá N-(7-1) = N-6 valores.
-                # Y los retornos tienen M-1 valores respecto a M precios.
-                # Entonces, P&L tiene (M-1) - 6 = M-7 valores.
-                # Necesitamos M-7 valores alineados con las últimas M-7 fechas.
-                
-                # Longitud esperada de rolling_pnl_7d es daily_returns.drop_nulls().len() - (7 -1)
-                # Si df_vwap_daily tiene N filas, daily_returns tiene N-1 filas (sin nulos).
-                # rolling_pnl_7d tiene (N-1) - (7-1) = N-7 filas.
-                # Se alinea con las últimas N-7 fechas de df_vwap_daily.
-                
-                num_pnl_values = rolling_pnl_7d.len()
-                num_total_dates = df_vwap_daily.height
-                
-                if num_pnl_values > 0 and num_total_dates > num_pnl_values:
-                    padding_pnl = [None] * (num_total_dates - num_pnl_values)
-                    aligned_pnl_series = pl.Series(padding_pnl + list(rolling_pnl_7d), dtype=pl.Float64)
-                    df_vwap_daily = df_vwap_daily.with_columns(aligned_pnl_series.alias('rolling_pnl_7d'))
-                elif num_pnl_values > 0 and num_pnl_values == num_total_dates: # Caso menos probable pero posible si hay pocos datos
-                     df_vwap_daily = df_vwap_daily.with_columns(rolling_pnl_7d.alias('rolling_pnl_7d'))
-
-
-            metrics['rolling_pnl_7d'] = df_vwap_daily.select(['date', 'vwap', 'daily_returns', 'rolling_pnl_7d']).drop_nulls(subset=['rolling_pnl_7d'])
-            
-            # Calcular Sharpe Ratio (general, no rodante)
-            sharpe_ratio_overall = finance_utils.calculate_sharpe_ratio(daily_returns.drop_nulls())
-            metrics['sharpe_ratio_overall'] = pl.DataFrame({'sharpe_ratio': [sharpe_ratio_overall]})
-            logger.info(f"Rolling P&L (7d) y Sharpe Ratio calculados. Sharpe: {sharpe_ratio_overall}")
-            
-        else:
-            logger.warning("No se pudieron calcular retornos diarios a partir de vwap_daily. P&L y Sharpe no calculados.")
-            metrics['rolling_pnl_7d'] = pl.DataFrame({'date': [], 'vwap': [], 'daily_returns': [], 'rolling_pnl_7d': []}, schema={'date': pl.Date, 'vwap': pl.Float64, 'daily_returns': pl.Float64, 'rolling_pnl_7d': pl.Float64})
-            metrics['sharpe_ratio_overall'] = pl.DataFrame({'sharpe_ratio': [None]}, schema={'sharpe_ratio': pl.Float64})
-    else:
-        logger.warning("No se puede calcular Rolling P&L y Sharpe Ratio: 'vwap_daily' no disponible o no contiene columna 'vwap'.")
-        metrics['rolling_pnl_7d'] = pl.DataFrame({'date': [], 'vwap': [], 'daily_returns': [], 'rolling_pnl_7d': []}, schema={'date': pl.Date, 'vwap': pl.Float64, 'daily_returns': pl.Float64, 'rolling_pnl_7d': pl.Float64})
-        metrics['sharpe_ratio_overall'] = pl.DataFrame({'sharpe_ratio': [None]}, schema={'sharpe_ratio': pl.Float64})
-
-    # DONE: 1.5 Estacionalidad (STL / FFT) en volumen
-    logger.info("Analizando estacionalidad en volumen (FFT)...")
-    if 'vwap_daily' in metrics and not metrics['vwap_daily'].is_empty() and 'total_volume' in metrics['vwap_daily'].columns:
-        df_vwap_info = metrics['vwap_daily']
-        daily_volumes = df_vwap_info['total_volume'].drop_nulls()
-
-        if daily_volumes.len() > 1: # Necesitamos al menos 2 puntos para FFT
-            try:
-                # Aplicar FFT
-                volume_fft = np.fft.fft(daily_volumes.to_numpy()) # type: ignore
-                fft_freq = np.fft.fftfreq(daily_volumes.len())
-                
-                # Obtener magnitudes y excluir el componente DC (frecuencia cero)
-                magnitudes = np.abs(volume_fft)[1:]
-                frequencies = fft_freq[1:]
-                
-                # Filtrar solo frecuencias positivas (la FFT es simétrica para entradas reales)
-                positive_freq_mask = frequencies > 0
-                magnitudes = magnitudes[positive_freq_mask]
-                frequencies = frequencies[positive_freq_mask]
-
-                if magnitudes.size > 0:
-                    # Encontrar las N frecuencias más dominantes (ej. N=3)
-                    top_n = 3
-                    dominant_indices = np.argsort(magnitudes)[-top_n:][::-1]
-                    
-                    dominant_frequencies = frequencies[dominant_indices]
-                    dominant_magnitudes = magnitudes[dominant_indices]
-                    # Periodos en días (asumiendo que los datos son diarios)
-                    dominant_periods = 1 / dominant_frequencies 
-
-                    fft_results_list = []
-                    for i in range(len(dominant_frequencies)):
-                        fft_results_list.append({
-                            'rank': i + 1,
-                            'frequency': dominant_frequencies[i],
-                            'magnitude': dominant_magnitudes[i],
-                            'period_days': dominant_periods[i]
-                        })
-                    metrics['volume_seasonality_fft'] = pl.DataFrame(fft_results_list)
-                    logger.info(f"Análisis FFT de estacionalidad de volumen completado. Principales periodos (días): {dominant_periods}")
-                else:
-                    logger.warning("No se encontraron frecuencias positivas en FFT de volumen.")
-                    metrics['volume_seasonality_fft'] = pl.DataFrame()
-            except Exception as e:
-                logger.error(f"Error durante el cálculo de FFT para estacionalidad de volumen: {e}")
-                metrics['volume_seasonality_fft'] = pl.DataFrame()
-        else:
-            logger.warning("No hay suficientes datos de volumen diario (después de quitar nulos) para análisis FFT.")
-            metrics['volume_seasonality_fft'] = pl.DataFrame()
-    else:
-        logger.warning("No se puede analizar estacionalidad de volumen: 'vwap_daily' o 'total_volume' no disponibles.")
-        metrics['volume_seasonality_fft'] = pl.DataFrame()
-
-    if 'hour_local' in df_processed.columns and df_processed['hour_local'].null_count() < df_processed.height:
-        metrics['hourly_counts'] = df_processed['hour_local'].value_counts().sort(by='hour_local')
-    else:
-        metrics['hourly_counts'] = pl.DataFrame({'hour_local': pl.Series([], dtype=pl.Int64), 'counts': pl.Series([], dtype=pl.UInt32)})
-
-    logger.info("Calculando nuevas métricas de resumen de ventas con Polars...")
-    sell_indicator_col_mapped = sell_config.get('indicator_column') 
-    sell_indicator_value = sell_config.get('indicator_value')
-    
-    if not (sell_indicator_col_mapped and sell_indicator_value and sell_indicator_col_mapped in df_completed_for_sales_summary.columns):
-        logger.warning(f"Configuración de ventas incompleta o columna '{sell_indicator_col_mapped}' no encontrada en df_completed_for_sales_summary.")
-    elif df_completed_for_sales_summary.is_empty():
-         logger.warning(f"No hay operaciones completadas (df_completed_for_sales_summary) para resumen de ventas.")
-    else:
-        df_sales_completed = df_completed_for_sales_summary.filter(pl.col(sell_indicator_col_mapped) == sell_indicator_value)
-
-        if df_sales_completed.is_empty():
-            logger.info(f"No se encontraron operaciones de venta (col '{sell_indicator_col_mapped}' == '{sell_indicator_value}') entre las completadas.")
-        else:
-            logger.info(f"Procesando {df_sales_completed.height} operaciones de venta completadas.")
-            required_cols_for_sales = [asset_type_col, 'Quantity_num', 'TotalPrice_num', fiat_type_col]
-            if not all(col in df_sales_completed.columns for col in required_cols_for_sales):
-                logger.warning(f"Faltan columnas para el resumen de ventas ({required_cols_for_sales}). No se calculará.")
-            else:
-                df_sales_summary_all_assets = (
-                    df_sales_completed.group_by([asset_type_col, fiat_type_col])
-                    .agg([
-                        pl.col('Quantity_num').sum().alias('Total Asset Sold'),
-                        pl.col('TotalPrice_num').sum().alias('Total Fiat Received')
-                    ])
-                    .with_columns([
-                        (pl.col('Total Fiat Received') / pl.col('Total Asset Sold')).alias('Average Sell Price (in Fiat Received)')
-                    ])
-                    .rename({
-                        asset_type_col: 'Asset Sold',
-                        fiat_type_col: 'Fiat Received'
-                    })
-                )
-                if not df_sales_summary_all_assets.is_empty():
-                    metrics['sales_summary_all_assets_fiat_detailed'] = df_sales_summary_all_assets
-                    logger.info(f"Resumen de ventas detallado calculado con {df_sales_summary_all_assets.height} filas.")
-                else:
-                    metrics['sales_summary_all_assets_fiat_detailed'] = pl.DataFrame()
-
-    # DONE: 1.6 Detección de Outliers con IsolationForest
-    logger.info("Iniciando detección de outliers con IsolationForest...")
-    # El argumento cli_args debe pasarse a la función analyze.
-    # Se asume que args de app.py (o main_logic.py) se pasa como cli_args.
-    detect_outliers_active = cli_args.get('detect_outliers', False) if cli_args else False
-
-    if detect_outliers_active:
-        if 'TotalPrice_num' in df_processed.columns and not df_processed.filter(pl.col('TotalPrice_num').is_not_null()).is_empty():
-            df_for_outliers = df_processed.select(['TotalPrice_num']).drop_nulls()
-            if not df_for_outliers.is_empty():
-                try:
-                    model = IsolationForest(n_estimators=100, contamination='auto', random_state=42)
-                    # IsolationForest espera un array de Numpy 2D
-                    df_for_outliers_np = df_for_outliers.to_numpy()
-                    model.fit(df_for_outliers_np)
-                    
-                    # Predecir outliers (-1 para outlier, 1 para inlier)
-                    # Para alinear con el df original, primero creamos una columna de predicciones nulas
-                    # outlier_predictions = pl.Series([None] * df_processed.height, dtype=pl.Int8) # No se usa directamente
-                    
-                    # Obtenemos los índices de las filas no nulas usadas para el entrenamiento
-                    # Corregido el acceso a la columna y conversión a Series
-                    non_null_indices_df = df_processed.with_row_count().filter(pl.col('TotalPrice_num').is_not_null()).select(pl.col("row_nr"))
-                    non_null_indices = non_null_indices_df.to_series()
-
-                    # Hacemos predicciones sobre los datos no nulos
-                    predictions_on_non_null = model.predict(df_for_outliers_np)
-                    
-                    # Creamos una serie temporal para actualizar las posiciones correctas
-                    # Convertimos las predicciones a una serie de Polars
-                    predictions_series = pl.Series("outlier_pred_temp", predictions_on_non_null, dtype=pl.Int8)
-                    
-                    # Actualizamos la columna de predicciones de outliers en el df_processed
-                    df_temp_predictions = pl.DataFrame({
-                        "row_nr": non_null_indices, # Usar la serie de índices aquí
-                        "outlier_TotalPrice_num": predictions_series
-                    })
-                    
-                    df_processed = df_processed.with_row_count().join(
-                        df_temp_predictions, on="row_nr", how="left"
-                    ).drop("row_nr")
-
-                    num_outliers = df_processed.filter(pl.col('outlier_TotalPrice_num') == -1).height
-                    # Seleccionar columnas relevantes, incluyendo el identificador de orden si está mapeado
-                    order_id_col_for_outliers = order_number_col if order_number_col in df_processed.columns else None
-                    cols_to_select_for_outliers = [col for col in [order_id_col_for_outliers, 'TotalPrice_num', 'outlier_TotalPrice_num'] if col is not None and col in df_processed.columns]
-                    
-                    if cols_to_select_for_outliers:
-                        metrics['outliers_totalprice_num'] = df_processed.filter(pl.col('outlier_TotalPrice_num') == -1).select(cols_to_select_for_outliers)
-                    else:
-                        metrics['outliers_totalprice_num'] = pl.DataFrame() # Vacío si no hay columnas para seleccionar
-
-                    logger.info(f"Detección de outliers completada. {num_outliers} outliers encontrados en TotalPrice_num.")
-                except Exception as e:
-                    logger.error(f"Error durante la detección de outliers con IsolationForest: {e}")
-                    df_processed = df_processed.with_columns(pl.lit(None, dtype=pl.Int8).alias('outlier_TotalPrice_num'))
-                    metrics['outliers_totalprice_num'] = pl.DataFrame()
-            else:
-                logger.warning("No hay datos no nulos en 'TotalPrice_num' para la detección de outliers.")
-                df_processed = df_processed.with_columns(pl.lit(None, dtype=pl.Int8).alias('outlier_TotalPrice_num'))
-                metrics['outliers_totalprice_num'] = pl.DataFrame()
-        else:
-            logger.warning("Columna 'TotalPrice_num' no encontrada o vacía, no se realizará detección de outliers.")
-            # Asegurar que la columna exista aunque no se procese para consistencia del esquema
-            if 'outlier_TotalPrice_num' not in df_processed.columns:
-                 df_processed = df_processed.with_columns(pl.lit(None, dtype=pl.Int8).alias('outlier_TotalPrice_num'))
-            metrics['outliers_totalprice_num'] = pl.DataFrame()
-    else:
-        logger.info("Detección de outliers no activada.")
-        if 'outlier_TotalPrice_num' not in df_processed.columns:
-            df_processed = df_processed.with_columns(pl.lit(None, dtype=pl.Int8).alias('outlier_TotalPrice_num'))
-        metrics['outliers_totalprice_num'] = pl.DataFrame() # DataFrame vacío si no está activo
-
     # DONE: 1.7 Índice de liquidez efectiva (mean_qty/median_qty)
     logger.info("Calculando Índice de Liquidez Efectiva (mean_qty/median_qty)...")
     if 'Quantity_num' in df_processed.columns and df_processed['Quantity_num'].null_count() < df_processed.height:
@@ -781,5 +438,63 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
         logger.info("--event-date no proporcionado. Se omite análisis comparativo Antes/Después.")
         metrics['event_comparison_stats'] = pl.DataFrame() # Vacío si no se activa
 
-    logger.info("Análisis (cálculo de métricas con Polars) completado.")
+    # DONE: 1.6 Detección de Outliers (Isolation Forest) en Price_num
+    logger.info("Iniciando Detección de Outliers (Isolation Forest) en Price_num...")
+    if cli_args and getattr(cli_args, 'detect_outliers', False):
+        if 'Price_num' in df_processed.columns and not df_processed.filter(pl.col('Price_num').is_not_null()).is_empty():
+            df_for_outliers = df_processed.select(['Price_num', order_number_col, 'Match_time_local']).drop_nulls(subset=['Price_num'])
+            
+            if df_for_outliers.height > 1: # IsolationForest necesita al menos 2 muestras
+                prices_for_model = df_for_outliers.select('Price_num').to_numpy()
+                
+                try:
+                    # DONE: 1.6 Configurar y entrenar IsolationForest
+                    iso_forest = IsolationForest(
+                        n_estimators=cli_args.get('outliers_n_estimators', 100),
+                        contamination=float(cli_args.get('outliers_contamination', 'auto')), # 'auto' o un float
+                        random_state=cli_args.get('outliers_random_state', 42),
+                        n_jobs=-1 # Usar todos los procesadores disponibles
+                    )
+                    iso_forest.fit(prices_for_model)
+                    
+                    # Predecir outliers (-1 para outliers, 1 para inliers)
+                    outlier_predictions = iso_forest.predict(prices_for_model)
+                    
+                    # Añadir predicciones al DataFrame temporal
+                    df_for_outliers = df_for_outliers.with_columns(
+                        pl.Series(name="is_outlier", values=(outlier_predictions == -1))
+                    )
+                    
+                    # Contar outliers
+                    num_outliers = df_for_outliers.filter(pl.col("is_outlier")).height
+                    logger.info(f"Detección de Outliers completada. Se encontraron {num_outliers} outliers en 'Price_num'.")
+
+                    # Preparar DataFrame de información de outliers para métricas
+                    # Seleccionar columnas relevantes para el reporte de outliers
+                    outlier_report_cols = [order_number_col, 'Match_time_local', 'Price_num']
+                    # Verificar que las columnas existan en df_for_outliers
+                    actual_outlier_report_cols = [col for col in outlier_report_cols if col in df_for_outliers.columns]
+                    
+                    if actual_outlier_report_cols:
+                         metrics['outlier_info'] = df_for_outliers.filter(pl.col("is_outlier")).select(actual_outlier_report_cols).sort('Match_time_local')
+                    else:
+                        logger.warning("No se pudieron seleccionar columnas para el reporte de outliers, puede que falten.")
+                        metrics['outlier_info'] = pl.DataFrame()
+
+                except Exception as e_iso:
+                    logger.error(f"Error durante la detección de outliers con IsolationForest: {e_iso}")
+                    metrics['outlier_info'] = pl.DataFrame() # Devolver DataFrame vacío en caso de error
+            else:
+                logger.info("No hay suficientes datos (después de quitar nulos en Price_num) para ejecutar IsolationForest. Se requieren al menos 2 muestras.")
+                metrics['outlier_info'] = pl.DataFrame()
+        else:
+            logger.info("Columna 'Price_num' no disponible o vacía después de quitar nulos. No se ejecutará la detección de outliers.")
+            metrics['outlier_info'] = pl.DataFrame()
+    else:
+        logger.info("Detección de outliers no activada mediante argumento CLI (--detect_outliers).")
+        metrics['outlier_info'] = pl.DataFrame() # DataFrame vacío si no está activada
+
+    # -- FIN MÉTRICAS AVANZADAS --
+
+    logger.info("Análisis finalizado.")
     return df_processed, metrics
