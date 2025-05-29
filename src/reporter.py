@@ -240,8 +240,46 @@ def save_outputs(
             logger.info(f"No hay datos de '{pie_metric_key}' para graficar en '{output_label} - {status_subdir}'.")
 
     # DONE: 2.1 Llamar a plot_sankey_fiat_asset
-    logger.info(f"Intentando generar gráfico Sankey para '{output_label} - {status_subdir}'...")
     path_sankey = None
+    if config.get('plotting', {}).get('generate_sankey_fiat_asset', True):
+        logger.info(f"Intentando generar gráfico Sankey para '{output_label} - {status_subdir}'...")
+        path_sankey = plotting.plot_sankey_fiat_asset(
+            df_to_plot_from, # Pasar el DataFrame de Polars original
+            figures_dir, 
+            title_suffix=f" ({final_title_suffix})", 
+            file_identifier=file_name_suffix_from_cli
+        )
+        add_figure_to_html_list(path_sankey, "Sankey Fiat -> Activo")
+
+    # --- Heatmaps Hora x Día (plot_heatmap_hour_day) --- 
+    # df_to_plot_from_pandas ya está disponible y es un DataFrame de Pandas
+    # con Match_time_local procesado.
+    
+    # Heatmap para el conteo de operaciones
+    if config.get('plotting', {}).get('generate_heatmaps_hour_day', True): # Usar la misma flag de config
+        logger.info(f"Intentando generar Heatmap Hora x Día (Conteo) para '{output_label} - {status_subdir}'...")
+        col_order_number = config.get('column_names', {}).get('order_number_internal', 'order_number')
+        path_heatmap_count = plotting.plot_heatmap_hour_day(
+            df_pd=df_to_plot_from_pandas, # PASAR EL DF PANDAS
+            out_dir=figures_dir, 
+            value_col_name=col_order_number, 
+            agg_func='count', 
+            title_suffix=f" ({final_title_suffix})",
+            file_identifier=file_name_suffix_from_cli
+        )
+        add_figure_to_html_list(path_heatmap_count, "Heatmap Actividad (Conteo por Hora/Día)")
+
+        # Heatmap para la suma de TotalPrice_num
+        logger.info(f"Intentando generar Heatmap Hora x Día (Suma TotalPrice) para '{output_label} - {status_subdir}'...")
+        col_total_price = config.get('column_names', {}).get('total_price_num_internal', 'TotalPrice_num')
+        path_heatmap_sum = plotting.plot_heatmap_hour_day(
+            df_pd=df_to_plot_from_pandas, # PASAR EL DF PANDAS
+            out_dir=figures_dir, 
+            value_col_name=col_total_price, 
+            agg_func='sum', 
+            title_suffix=f" ({final_title_suffix})",
+            file_identifier=file_name_suffix_from_cli
+        )
     # df_to_plot_from es el DataFrame de Polars original para el período/estado actual
     if df_to_plot_from is not None and not df_to_plot_from.is_empty():
         try:
@@ -279,8 +317,8 @@ def save_outputs(
             
             if col_for_counting:
                 path_heatmap_count = plotting.plot_heatmap_hour_day(
-                    df_to_plot_from, 
-                    figures_dir, 
+                    df_pd=df_to_plot_from_pandas, # PASAR EL DF PANDAS
+                    out_dir=figures_dir, 
                     value_col_name=col_for_counting, # Columna a usar por aggfunc='count'
                     agg_func='count', 
                     title_suffix=final_title_suffix, 
@@ -297,8 +335,8 @@ def save_outputs(
         if 'TotalPrice_num' in df_to_plot_from.columns: 
             try:
                 path_heatmap_volume = plotting.plot_heatmap_hour_day(
-                    df_to_plot_from, 
-                    figures_dir, 
+                    df_pd=df_to_plot_from_pandas, # PASAR EL DF PANDAS
+                    out_dir=figures_dir, 
                     value_col_name='TotalPrice_num', 
                     agg_func='sum', 
                     title_suffix=final_title_suffix, 

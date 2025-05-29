@@ -23,42 +23,25 @@ def plot_hourly(hourly_counts: pd.Series, out_dir: str, title_suffix: str = "", 
     # Asegurar un índice completo de 0-23 horas y ordenado
     hourly_counts_reindexed = hourly_counts.reindex(range(24), fill_value=0).sort_index()
     
-    x_tick_positions = hourly_counts_reindexed.index # Posiciones numéricas (0-23) para los ticks
-    x_category_labels = x_tick_positions.astype(str) # Etiquetas de categoría como string ('0', '1', ..., '23') para barplot
+    x_tick_positions = hourly_counts_reindexed.index # Posiciones numéricas (0-23)
+    x_category_labels = x_tick_positions.astype(str) # Etiquetas de categoría como string ('0', '1', ..., '23')
     y_data = pd.to_numeric(hourly_counts_reindexed.values, errors='coerce').fillna(0)
 
     plt.figure(figsize=(12, 8))
-    # Usar x_category_labels (strings) para que barplot los trate como categorías discretas
-    ax = sns.barplot(x=x_category_labels, y=y_data, color="skyblue", palette=["skyblue"] if len(x_category_labels) <=1 else None)
+    # Usar x_tick_positions (numérico) para el eje X de barplot
+    ax = sns.barplot(x=x_tick_positions, y=y_data, color="skyblue", palette=["skyblue"] if len(x_category_labels) <=1 else None)
     ax.set_title(f'Operaciones por Hora del Día (Local){title_suffix}', fontsize=15)
     ax.set_xlabel('Hora del Día (0-23)', fontsize=12)
     ax.set_ylabel('Cantidad de Operaciones', fontsize=12)
     
-    # Establecer los ticks en las posiciones numéricas. Las etiquetas las tomará barplot de x_category_labels.
-    # No es necesario llamar a ax.set_xticklabels() si barplot ya usa x_category_labels.
-    # ax.set_xticks(x_tick_positions) # Esto podría ser redundante o conflictivo si barplot ya posiciona según x_category_labels
+    # Establecer los ticks en las posiciones numéricas y las etiquetas como strings
+    ax.set_xticks(x_tick_positions)
+    ax.set_xticklabels(x_category_labels)
 
     # Si hay muchas horas, ajustar los xticks para mejorar legibilidad
-    # Barplot debería manejar la disposición de las etiquetas de categoría.
-    # Si se necesita un control más fino sobre qué ticks/etiquetas mostrar:
     if len(x_tick_positions) > 12:
-        # Seleccionar un subconjunto de posiciones y etiquetas para mostrar
-        tick_values = ax.get_xticks() # Obtener las posiciones actuales de los ticks (basadas en categorías string)
-        
-        # Intentar usar MaxNLocator sobre las posiciones numéricas originales
-        # y luego mapear esas posiciones a las etiquetas string
         locator = mticker.MaxNLocator(nbins=12, integer=True)
-        selected_numeric_ticks = locator.tick_values(min(x_tick_positions), max(x_tick_positions))
-        
-        # Filtrar las etiquetas de categoría para que coincidan con los selected_numeric_ticks
-        # Esto es un poco indirecto porque barplot ya ha establecido sus propios ticks/etiquetas.
-        # Una forma más simple es dejar que barplot lo maneje o reducir el número de categorías de entrada.
-        # Por ahora, dejamos que barplot decida la densidad de ticks y ajustamos con MaxNLocator si es necesario después.
-        # Lo ideal sería que barplot use x_category_labels y set_major_locator funcione sobre eso.
-        
-        # Dejamos el localizador sobre el eje actual que barplot ha configurado.
-        # ax.xaxis.set_major_locator(mticker.MaxNLocator(nbins=12, integer=True)) # COMENTADO
-
+        ax.xaxis.set_major_locator(locator)
 
     ax.grid(True, linestyle='--', alpha=0.7)
     plt.tight_layout()
@@ -619,127 +602,144 @@ def plot_sankey_fiat_asset(df_data: pl.DataFrame, out_dir: str, title_suffix: st
         return None 
 
 # DONE: 2.2 Heatmap Hora x Día
-def plot_heatmap_hour_day(df_data: pl.DataFrame, out_dir: str, value_col_name: str = 'TotalPrice_num', agg_func: str = 'sum', title_suffix: str = "", file_identifier: str = "_general") -> str | None:
-    logger.info(f"Iniciando generación de Heatmap Hora x Día ({value_col_name}, agg: {agg_func}){title_suffix}.")
-    
-    time_col = 'Match_time_local' # Columna de timestamp local
-    
-    if time_col not in df_data.columns or value_col_name not in df_data.columns:
-        logger.warning(f"Faltan columnas ({time_col}, {value_col_name}) para Heatmap Hora x Día{title_suffix}. No se generará.")
+def plot_heatmap_hour_day(df_pd: pd.DataFrame, out_dir: str, value_col_name: str = 'TotalPrice_num', agg_func: str = 'sum', title_suffix: str = "", file_identifier: str = "_general") -> str | None:
+    if df_pd.empty:
+        logger.info(f"No hay datos para el heatmap hora/día ({value_col_name} {agg_func}){title_suffix}.")
         return None
 
-    df_heatmap = df_data.filter(pl.col(time_col).is_not_null() & pl.col(value_col_name).is_not_null())
-    if df_heatmap.is_empty():
-        logger.info(f"No hay datos válidos para Heatmap Hora x Día tras filtrar nulos en {time_col} o {value_col_name}{title_suffix}.")
+    logger.info(f"Generando heatmap hora/día para {value_col_name} (agg: {agg_func}){title_suffix}...")
+
+    if 'Match_time_local' not in df_pd.columns:
+        logger.warning(f"Columna 'Match_time_local' no encontrada en el DataFrame para heatmap. No se puede generar.{title_suffix}")
+        return None
+        
+    df_pd_copy = df_pd.copy() # Crear una copia para evitar SettingWithCopyWarning
+
+    # Asegurarse que Match_time_local sea datetime y manejar timezone
+    if not pd.api.types.is_datetime64_any_dtype(df_pd_copy['Match_time_local']):
+        try:
+            df_pd_copy['Match_time_local'] = pd.to_datetime(df_pd_copy['Match_time_local'], errors='coerce')
+        except Exception as e:
+            logger.error(f"Error al convertir 'Match_time_local' a datetime: {e}. No se puede generar heatmap.{title_suffix}")
+            return None
+
+    if df_pd_copy['Match_time_local'].isna().all():
+        logger.warning(f"'Match_time_local' contiene solo NaT después de la conversión. No se puede generar heatmap.{title_suffix}")
         return None
 
-    # Convertir a Pandas para facilitar pivot y heatmap con seaborn
-    df_heatmap_pd = df_heatmap.select([
-        pl.col(time_col).dt.hour().alias('hour_of_day'),
-        pl.col(time_col).dt.weekday().alias('day_of_week'), # Lunes=0, Domingo=6
-        pl.col(value_col_name)
-    ]).to_pandas(use_pyarrow_extension_array=True)
+    # Si la columna tiene timezone, convertirla a naive (UTC o simplemente remover tz)
+    # Esto es crucial para evitar errores con algunas operaciones de .dt o con librerías como PyArrow si tzdata no está bien configurado.
+    if hasattr(df_pd_copy['Match_time_local'].dt, 'tz') and df_pd_copy['Match_time_local'].dt.tz is not None:
+        try:
+            logger.debug(f"Convirtiendo 'Match_time_local' a timezone-naive desde {df_pd_copy['Match_time_local'].dt.tz} para heatmap.")
+            df_pd_copy['Match_time_local'] = df_pd_copy['Match_time_local'].dt.tz_convert(None) # Convertir a UTC y hacerlo naive
+            # Alternativamente, si ya está en la hora local correcta conceptualmente:
+            # df_pd_copy['Match_time_local'] = df_pd_copy['Match_time_local'].dt.tz_localize(None)
+        except Exception as e_tz_convert:
+            logger.error(f"Error al convertir 'Match_time_local' a timezone-naive: {e_tz_convert}. Usando datos como están si es posible.")
+            # Podríamos optar por no continuar si la conversión de TZ es crítica y falla.
+            # Por ahora, se intentará continuar, pero podría fallar más adelante en .dt.hour/.dt.dayofweek
 
-    if df_heatmap_pd.empty:
-        logger.info(f"DataFrame Pandas vacío después de extraer hora/día para Heatmap{title_suffix}.")
+    try:
+        df_pd_copy['hour'] = df_pd_copy['Match_time_local'].dt.hour
+        # Antes era .weekday, ahora .dayofweek (Lunes=0, Domingo=6) para consistencia y facilidad de mapeo.
+        df_pd_copy['weekday'] = df_pd_copy['Match_time_local'].dt.dayofweek 
+    except Exception as e_dt_extract:
+        logger.error(f"Error extrayendo componentes de hora/día de 'Match_time_local': {e_dt_extract}. Tipo de dato actual: {df_pd_copy['Match_time_local'].dtype}. No se puede generar heatmap.")
+        return None
+
+    # Extraer día de la semana (como número 0-6) y hora del día
+    df_pd_copy['day_of_week_num'] = df_pd_copy['Match_time_local'].dt.dayofweek # Lunes=0, Domingo=6
+    df_pd_copy['day_of_week_label'] = df_pd_copy['day_of_week_num'].map({0: 'Monday', 1: 'Tuesday', 2: 'Wednesday', 3: 'Thursday', 4: 'Friday', 5: 'Saturday', 6: 'Sunday'})
+    
+    # Orden de los días para el heatmap
+    days_ordered_spanish = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+    # Validar la columna de valor y la función de agregación
+    if value_col_name not in df_pd_copy.columns:
+        logger.warning(f"Columna de valor '{value_col_name}' no encontrada para heatmap.{title_suffix}")
+        return None
+
+    final_agg_func: Union[str, callable]
+    if agg_func == 'count':
+        final_agg_func = 'size' 
+        # Si es 'count', no importa mucho 'value_col_name' para pivot_table con 'size', 
+        # pero debe existir. Usaremos la primera columna si order_number no está.
+        if value_col_name == 'order_number' and value_col_name not in df_pd_copy.columns:
+            if df_pd_copy.columns.empty: return None # No hay columnas
+            value_col_name = df_pd_copy.columns[0] # Usar cualquier columna existente
+            logger.info(f"Columna '{value_col_name}' no encontrada para conteo, usando '{df_pd_copy.columns[0]}' como fallback.")
+
+    elif agg_func == 'sum':
+        final_agg_func = 'sum'
+        # Asegurar que la columna de valor sea numérica para la suma
+        if not pd.api.types.is_numeric_dtype(df_pd_copy[value_col_name]):
+            logger.warning(f"Columna de valor '{value_col_name}' no es numérica para agg_func='sum' en heatmap. Intentando convertir...")
+            df_pd_copy[value_col_name] = pd.to_numeric(df_pd_copy[value_col_name], errors='coerce')
+            df_pd_copy = df_pd_copy.dropna(subset=[value_col_name]) # Quitar filas donde la conversión falló
+            if df_pd_copy.empty:
+                logger.warning(f"Columna de valor '{value_col_name}' quedó vacía después de intentar convertir a numérico.{title_suffix}")
+                return None
+    else:
+        logger.error(f"Función de agregación no soportada '{agg_func}' para heatmap.")
         return None
 
     try:
-        # DONE: Ajustar pivot_table para agg_func='count'
-        if agg_func == 'count':
-            # Para contar, podemos usar cualquier columna que no sea nula o simplemente el tamaño del grupo.
-            # Si value_col_name es una columna real, la usamos. Sino, podría ser problemático.
-            # Vamos a asumir que value_col_name existe para contar sus no-nulos.
-            # Si 'order_number' (o la columna de conteo) no está, el warning original ya lo indicó.
-            # Lo importante es que el resultado de la pivot sea numérico.
-            if value_col_name not in df_heatmap_pd.columns:
-                 # Esto es un fallback si la columna de conteo no existe; intentamos contar filas por grupo.
-                 # Usamos una columna existente (como 'hour_of_day') solo como placeholder para la función de agregación.
-                pivot_table = pd.pivot_table(
-                    df_heatmap_pd, 
-                    index='hour_of_day', 
-                    columns='day_of_week', 
-                    aggfunc='size', # 'size' cuenta el número de filas en cada grupo
-                    fill_value=0
-                )
-            else:
-                 pivot_table = pd.pivot_table(
-                    df_heatmap_pd, 
-                    values=value_col_name, 
-                    index='hour_of_day', 
-                    columns='day_of_week', 
-                    aggfunc='count', # aggfunc='count' en pandas cuenta no-nulos
-                    fill_value=0
-                )
-        else: # Para 'sum', 'mean', etc.
-            pivot_table = pd.pivot_table(
-                df_heatmap_pd, 
-                values=value_col_name, 
-                index='hour_of_day', 
-                columns='day_of_week', 
-                aggfunc=agg_func, 
-                fill_value=0
-            )
+        pivot_table = df_pd_copy.pivot_table(
+            values=value_col_name, 
+            index='hour', 
+            columns='day_of_week_label', # Usar las etiquetas en español
+            aggfunc=final_agg_func,
+            fill_value=0
+        )
     except Exception as e_pivot:
-        logger.error(f"Error al crear tabla pivote para Heatmap Hora x Día: {e_pivot}. Datos head:\n{df_heatmap_pd.head()}")
+        logger.error(f"Error al crear pivot_table para heatmap ({value_col_name} {agg_func}): {e_pivot}")
         return None
-
-    if pivot_table.empty:
-        logger.info(f"Tabla pivote vacía para Heatmap Hora x Día{title_suffix}.")
-        return None
-
-    # Ordenar los días de la semana para el gráfico (Lunes a Domingo)
-    days_of_week_map = {0: 'Lunes', 1: 'Martes', 2: 'Miércoles', 3: 'Jueves', 4: 'Viernes', 5: 'Sábado', 6: 'Domingo'}
-    pivot_table = pivot_table.reindex(columns=range(7)).rename(columns=days_of_week_map) # Asegurar que todos los días estén, rellenar con NaN si faltan y luego se llenan con 0 por pivot_table
-    pivot_table = pivot_table.fillna(0) # Rellenar días que pudieron no tener datos
     
-    # Asegurar que todas las horas (0-23) estén presentes en el índice
-    pivot_table = pivot_table.reindex(index=range(24), fill_value=0)
-
-    # Convertir todas las columnas de la pivot table a numérico
-    for col_idx in pivot_table.columns:
-        pivot_table[col_idx] = pd.to_numeric(pivot_table[col_idx], errors='coerce')
-    pivot_table = pivot_table.fillna(0)
+    # Reordenar columnas según days_ordered_spanish y rellenar días faltantes con 0
+    # Asegurar que todas las horas (0-23) estén presentes como índice también
+    pivot_table_ordered = pivot_table.reindex(columns=days_ordered_spanish, index=range(24)).fillna(0)
     
-    # DONE: Forzar dtype a int para heatmap si agg_func es 'count'
-    if agg_func == 'count':
+    # Si la agregación fue 'size' (conteo), convertir a int para el formato del heatmap
+    if final_agg_func == 'size':
+        pivot_table_ordered = pivot_table_ordered.astype(int)
+    elif final_agg_func == 'sum': # Asegurar que para la suma, la tabla sea float
         try:
-            pivot_table = pivot_table.astype(int)
-            logger.debug(f"Heatmap ({value_col_name}, count): Pivot table convertida a int. Dtypes: {pivot_table.dtypes.unique()}")
-        except ValueError as e_astype_int:
-            logger.error(f"Error convirtiendo pivot_table a int para heatmap ({agg_func} de {value_col_name}): {e_astype_int}. Tabla head:\n{pivot_table.head()}")
-            # No devolvemos None aquí, seaborn podría manejarlo o dar un error más específico
-    elif agg_func != 'count': # Para otras agg_funcs como 'sum', 'mean' forzar a float
-        try:
-            pivot_table = pivot_table.astype(float)
-            logger.debug(f"Heatmap ({value_col_name}, {agg_func}): Pivot table convertida a float. Dtypes: {pivot_table.dtypes.unique()}")
+            pivot_table_ordered = pivot_table_ordered.astype(float)
         except ValueError as e_astype_float:
-            logger.error(f"Error al convertir pivot_table a float para heatmap ({agg_func} de {value_col_name}): {e_astype_float}. Tabla head:\n{pivot_table.head()}")
+            logger.error(f"Error convirtiendo pivot_table_ordered a float para heatmap (sum): {e_astype_float}. Dtypes actuales:\n{pivot_table_ordered.dtypes}")
+            # Opcionalmente, podrías intentar convertir columna por columna o manejar de otra forma
+            return None # No se puede generar el heatmap si la conversión falla
 
-    if pivot_table.empty:
-        logger.warning(f"Pivot table vacía para heatmap: {title_suffix}. No se generará gráfico.")
+    if pivot_table_ordered.empty:
+        logger.info(f"Pivot table para heatmap resultó vacía ({value_col_name} {agg_func}).{title_suffix}")
         return None
 
     plt.figure(figsize=(12, 8))
-    # Usar fmt=".0f" si es numérico y no es 'count' para evitar decimales si son enteros. Para 'count' (int), fmt="d" es mejor.
-    heatmap_fmt = "d" if agg_func == 'count' else ".0f" 
-    sns.heatmap(pivot_table, annot=False, fmt=heatmap_fmt, cmap="viridis", linewidths=.5, cbar_kws={'label': f'{agg_func.capitalize()} de {value_col_name}'})
+    
+    fmt_str = ".1f" if final_agg_func == 'sum' else "d" # "d" para enteros (conteo)
+
+    sns.heatmap(pivot_table_ordered, cmap="viridis", linewidths=.5, annot=False, fmt=fmt_str, cbar_kws={'label': f'{agg_func.capitalize()} de {value_col_name}'})
     plt.title(f'Heatmap de Actividad: Hora del Día vs. Día de la Semana ({agg_func.capitalize()} de {value_col_name}){title_suffix}')
     plt.xlabel('Día de la Semana')
     plt.ylabel('Hora del Día (0-23)')
-    plt.tight_layout()
+    plt.yticks(rotation=0) 
+    plt.xticks(rotation=0) 
 
-    agg_func_label = agg_func.lower()
-    file_path = os.path.join(out_dir, f'heatmap_hour_day_{value_col_name}_{agg_func_label}{file_identifier}.png')
+    # Guardar la figura
+    clean_val_col_name = utils.sanitize_filename_component(value_col_name)
+    clean_agg_func = utils.sanitize_filename_component(agg_func)
+    file_path = os.path.join(out_dir, f'heatmap_hour_day_{clean_val_col_name}_{clean_agg_func}{file_identifier}.png')
+    
     try:
         plt.savefig(file_path)
-        logger.info(f"Heatmap Hora x Día guardado en: {file_path}")
+        logger.info(f"Heatmap guardado en: {file_path}")
         plt.close()
         return file_path
     except Exception as e:
-        logger.error(f"Error al guardar Heatmap Hora x Día {file_path}: {e}")
+        logger.error(f"Error al guardar el heatmap {file_path}: {e}")
         plt.close()
-        return None 
+        return None
 
 # DONE: 2.3 Violín Precio vs. Método de pago
 def plot_violin_price_vs_payment_method(df_data: pl.DataFrame, out_dir: str, title_suffix: str = "", file_identifier: str = "_general") -> list[str]:

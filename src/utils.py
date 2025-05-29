@@ -36,3 +36,36 @@ def parse_amount(val: str | float | int) -> float | None:
         return float(val)
     except ValueError:
         return None 
+
+def sanitize_filename_component(filename_part: str) -> str:
+    """Reemplaza caracteres no válidos en un componente de nombre de archivo con guiones bajos."""
+    if not isinstance(filename_part, str):
+        filename_part = str(filename_part)
+    
+    # Caracteres comunes no permitidos o problemáticos en nombres de archivo en varios OS
+    # Se omiten / y \ ya que os.path.join los maneja, pero es bueno ser precavido.
+    # Espacios se reemplazan para evitar problemas en algunos contextos.
+    invalid_chars = r'<>:"/\|?* '
+    sanitized = filename_part
+    for char in invalid_chars:
+        sanitized = sanitized.replace(char, '_')
+    
+    # Reducir múltiples guiones bajos a uno solo
+    while '__' in sanitized:
+        sanitized = sanitized.replace('__', '_')
+        
+    # Eliminar guiones bajos al principio o al final si los hay
+    sanitized = sanitized.strip('_')
+    
+    # Limitar longitud por si acaso (algunos sistemas tienen límites bajos)
+    # Un límite razonable podría ser 50-60 chars para un componente.
+    max_len = 50 
+    if len(sanitized) > max_len:
+        sanitized = sanitized[:max_len]
+        # Si se cortó y termina en _, quitarlo
+        sanitized = sanitized.strip('_')
+        
+    if not sanitized: # Si después de todo queda vacío, poner un placeholder
+        return "default_name"
+        
+    return sanitized 

@@ -60,6 +60,38 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
             logger.warning(warning_msg)
     logger.info("Transformación de columnas numéricas completada.")
 
+    # --- INICIO: Parche para corregir Price_num en USDT/USD BUY ---
+    if (asset_type_col in df_processed.columns and
+        fiat_type_col in df_processed.columns and
+        order_type_col in df_processed.columns and
+        'Price_num' in df_processed.columns):
+
+        price_correction_condition = (
+            (pl.col(asset_type_col) == "USDT") &
+            (pl.col(fiat_type_col) == "USD") &
+            (pl.col(order_type_col) == "BUY") &
+            (pl.col('Price_num').is_not_null()) &
+            (pl.col('Price_num') > 10) # Umbral para precios probablemente mal interpretados
+        )
+
+        # Contar cuántas filas se van a afectar antes de la corrección
+        rows_to_correct_count = df_processed.filter(price_correction_condition).height
+        if rows_to_correct_count > 0:
+            logger.info(f"Detectadas {rows_to_correct_count} filas de USDT/USD BUY con Price_num > 10. Se intentará corregir dividiendo por 1000.")
+            
+            df_processed = df_processed.with_columns(
+                pl.when(price_correction_condition)
+                .then(pl.col('Price_num') / 1000)
+                .otherwise(pl.col('Price_num'))
+                .alias('Price_num') # Sobrescribe la columna Price_num
+            )
+            logger.info(f"Corrección de Price_num para USDT/USD BUY aplicada.")
+        else:
+            logger.info("No se encontraron filas USDT/USD BUY que necesiten corrección de Price_num (Price_num > 10).")
+    else:
+        logger.info("No se aplicó el parche de corrección de Price_num para USDT/USD BUY porque faltan una o más columnas requeridas (asset_type, fiat_type, order_type, Price_num).")
+    # --- FIN: Parche para corregir Price_num en USDT/USD BUY ---
+
     if 'MakerFee_num' not in df_processed.columns:
         df_processed = df_processed.with_columns(pl.lit(0.0, dtype=pl.Float64).alias('MakerFee_num'))
     if 'TakerFee_num' not in df_processed.columns:
