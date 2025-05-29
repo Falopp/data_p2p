@@ -10,6 +10,7 @@ import plotly.express as px
 from . import utils
 import matplotlib.ticker as mticker
 from typing import Union, List, Any, Optional
+import numpy as np
 
 logger = logging.getLogger(__name__)
 sns.set_theme(style="whitegrid")
@@ -27,27 +28,40 @@ def plot_hourly(hourly_counts: pd.Series, out_dir: str, title_suffix: str = "", 
     x_category_labels = x_tick_positions.astype(str) # Etiquetas de categoría como string ('0', '1', ..., '23')
     y_data = pd.to_numeric(hourly_counts_reindexed.values, errors='coerce').fillna(0)
 
-    plt.figure(figsize=(12, 8))
-    # Usar x_tick_positions (numérico) para el eje X de barplot
-    ax = sns.barplot(x=x_tick_positions, y=y_data, color="skyblue", palette=["skyblue"] if len(x_category_labels) <=1 else None)
-    ax.set_title(f'Operaciones por Hora del Día (Local){title_suffix}', fontsize=15)
-    ax.set_xlabel('Hora del Día (0-23)', fontsize=12)
+    plt.figure(figsize=(14, 8)) # Ligeramente más ancho para el título y subtítulo
+    
+    # Usar el primer color de la paleta activa de Seaborn
+    bar_color = sns.color_palette()[0] 
+    ax = sns.barplot(x=x_tick_positions, y=y_data, color=bar_color) # Quitamos palette para usar color uniforme
+    
+    main_title = f'Distribución de Operaciones P2P por Hora del Día{title_suffix}'
+    fig_text_explanation = "Este gráfico muestra el número total de operaciones P2P realizadas en cada hora del día (zona horaria local).\\nPermite identificar los periodos de mayor y menor actividad."
+    
+    plt.suptitle(main_title, fontsize=16, y=1.02) # y=1.02 para dar espacio si el título es largo
+    ax.set_title(fig_text_explanation, fontsize=10, pad=20) # Usar ax.set_title como subtítulo
+
+    ax.set_xlabel('Hora del Día (Local, 0-23)', fontsize=12)
     ax.set_ylabel('Cantidad de Operaciones', fontsize=12)
     
-    # Establecer los ticks en las posiciones numéricas y las etiquetas como strings
     ax.set_xticks(x_tick_positions)
     ax.set_xticklabels(x_category_labels)
 
-    # Si hay muchas horas, ajustar los xticks para mejorar legibilidad
     if len(x_tick_positions) > 12:
         locator = mticker.MaxNLocator(nbins=12, integer=True)
         ax.xaxis.set_major_locator(locator)
 
+    # Añadir línea de media
+    mean_operations = y_data.mean()
+    if pd.notna(mean_operations) and mean_operations > 0 : # Solo si la media es válida y positiva
+        ax.axhline(mean_operations, color='red', linestyle='--', linewidth=1.5, label=f'Promedio: {mean_operations:.2f} ops/hr')
+        ax.legend(fontsize=10)
+
     ax.grid(True, linestyle='--', alpha=0.7)
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0, 1, 0.96]) # Ajustar rect para dejar espacio para suptitle
+    
     file_path = os.path.join(out_dir, f'hourly_counts{file_identifier}.png')
     try:
-        plt.savefig(file_path)
+        plt.savefig(file_path, dpi=300) # Añadir DPI
         logger.info(f"Gráfico horario guardado en: {file_path}")
         plt.close()
         return file_path
@@ -65,155 +79,223 @@ def plot_monthly(monthly_fiat: pd.DataFrame, out_dir: str, title_suffix: str = "
     fiat_type_col_internal = 'fiat_type' 
     year_month_col_internal = 'YearMonthStr'
 
-    if year_month_col_internal not in monthly_fiat.columns:
-        logger.warning(f"Columna '{year_month_col_internal}' no encontrada para plot_monthly{title_suffix}.")
+    # Usar una paleta de colores más distintiva
+    palette = sns.color_palette("tab10", n_colors=10) 
+
+    if year_month_col_internal not in monthly_fiat.columns and not (isinstance(monthly_fiat.index, pd.MultiIndex) and year_month_col_internal in monthly_fiat.index.names) and monthly_fiat.index.name != year_month_col_internal:
+        logger.warning(f"Columna o índice '{year_month_col_internal}' no encontrada para plot_monthly{title_suffix}.")
         return saved_paths
         
     unique_fiats = [None]
     fiat_column_for_grouping = None
+
+    # Determinar cómo acceder a fiat_type (columna o nivel de índice)
     if fiat_type_col_internal in monthly_fiat.columns:
         fiat_column_for_grouping = fiat_type_col_internal
-    elif monthly_fiat.index.name == fiat_type_col_internal:
-        pass 
+        if monthly_fiat[fiat_column_for_grouping].nunique() > 0:
+            unique_fiats = monthly_fiat[fiat_column_for_grouping].unique()
     elif isinstance(monthly_fiat.index, pd.MultiIndex) and fiat_type_col_internal in monthly_fiat.index.names:
-        pass 
+        # Si es un MultiIndex y fiat_type es uno de los niveles
+        unique_fiats = monthly_fiat.index.get_level_values(fiat_type_col_internal).unique()
+    elif monthly_fiat.index.name == fiat_type_col_internal:
+        # Si fiat_type es el nombre del índice único
+        unique_fiats = monthly_fiat.index.unique()
+    # Si unique_fiats sigue siendo [None], significa que no se agrupará por fiat (ej. datos ya filtrados para un fiat)
 
-    if fiat_column_for_grouping and monthly_fiat[fiat_column_for_grouping].nunique() > 0:
-        unique_fiats = monthly_fiat[fiat_column_for_grouping].unique()
-
-    for current_fiat in unique_fiats:
-        df_plot_full = monthly_fiat.copy()
+    for i, current_fiat in enumerate(unique_fiats):
+        df_plot_full_orig = monthly_fiat.copy()
         plot_title_fiat_part = ""
-        current_fiat_label = "general"
+        current_fiat_label_for_file = "all_fiats"
+        current_fiat_label_for_title = "General"
 
-        if current_fiat is not None and fiat_column_for_grouping:
-            df_plot_full = monthly_fiat[monthly_fiat[fiat_column_for_grouping] == current_fiat]
-            plot_title_fiat_part = f" para {current_fiat}"
-            current_fiat_label = str(current_fiat)
-        elif current_fiat is not None and monthly_fiat.index.name == fiat_type_col_internal:
-             df_plot_full = monthly_fiat[monthly_fiat.index == current_fiat]
-             plot_title_fiat_part = f" para {current_fiat}"
-             current_fiat_label = str(current_fiat)
-        elif current_fiat is not None and isinstance(monthly_fiat.index, pd.MultiIndex) and fiat_type_col_internal in monthly_fiat.index.names:
-             df_plot_full = monthly_fiat[monthly_fiat.index.get_level_values(fiat_type_col_internal) == current_fiat]
-             plot_title_fiat_part = f" para {current_fiat}"
-             current_fiat_label = str(current_fiat)
+        if current_fiat is not None:
+            current_fiat_label_for_file = str(current_fiat).lower()
+            current_fiat_label_for_title = str(current_fiat)
+            plot_title_fiat_part = f" para {current_fiat_label_for_title}"
+            if fiat_column_for_grouping:
+                df_plot_full_orig = monthly_fiat[monthly_fiat[fiat_column_for_grouping] == current_fiat]
+            elif isinstance(monthly_fiat.index, pd.MultiIndex) and fiat_type_col_internal in monthly_fiat.index.names:
+                 df_plot_full_orig = monthly_fiat[monthly_fiat.index.get_level_values(fiat_type_col_internal) == current_fiat]
+            elif monthly_fiat.index.name == fiat_type_col_internal:
+                 df_plot_full_orig = monthly_fiat[monthly_fiat.index == current_fiat]
         
-        if df_plot_full.empty:
+        if df_plot_full_orig.empty:
+            logger.info(f"Datos vacíos para Fiat: {current_fiat_label_for_title} en plot_monthly. Omitiendo.")
             continue
 
-        exclude_cols = {year_month_col_internal} 
-        if fiat_column_for_grouping:
-            exclude_cols.add(fiat_column_for_grouping)
-        
-        potential_value_cols = [col for col in df_plot_full.columns if col not in exclude_cols]
-
-        if not potential_value_cols and isinstance(df_plot_full, pd.Series): 
-            potential_value_cols = [df_plot_full.name if df_plot_full.name else 'value']
-            df_plot_full = df_plot_full.to_frame(name=potential_value_cols[0])
-
-        if not potential_value_cols:
-            logger.warning(f"No hay columnas de valor para graficar en plot_monthly para {current_fiat_label}{title_suffix}.")
-            continue
-
-        plt.figure(figsize=(14, 7))
-        
-        x_values_source = df_plot_full.index if df_plot_full.index.name == year_month_col_internal else df_plot_full[year_month_col_internal]
-        
-        try:
-            # Intentar convertir a datetime, asumiendo formato como "YYYY-MM" o similar que pd.to_datetime pueda inferir.
-            # Si ya es datetime (p.ej. PeriodIndex convertido a timestamp), esto no debería dañarlo.
-            # Si es string "YYYY-MM", se convertirá al primer día del mes.
-            x_values_plot_dt = pd.to_datetime(x_values_source, errors='coerce')
-            
-            # Verificar si la conversión fue exitosa y no todos son NaT
-            if x_values_plot_dt is not None and not x_values_plot_dt.isna().all():
-                # Ordenar por fecha para asegurar que el gráfico de línea sea correcto
-                # Esto requiere que df_plot_full se ordene según estas fechas también.
-                # Creamos un DataFrame temporal para ordenar y usar.
-                df_temp_plot = df_plot_full.assign(x_plot_dt_col=x_values_plot_dt).sort_values(by='x_plot_dt_col')
-                x_axis_for_plot = df_temp_plot['x_plot_dt_col']
-            else:
-                logger.warning(f"Conversión de x_values_source a datetime resultó en todos NaT o None. Usando strings originales.")
-                # Fallback a strings si la conversión a datetime no es útil
-                if isinstance(x_values_source.dtype, pd.PeriodDtype):
-                    x_values_plot_str = x_values_source.astype(str)
-                elif pd.api.types.is_datetime64_any_dtype(x_values_source):
-                    x_values_plot_str = x_values_source.dt.strftime('%Y-%m')
-                else:
-                    x_values_plot_str = x_values_source.astype(str)
-                
-                # Ordenar por estos strings
-                df_temp_plot = df_plot_full.assign(x_plot_str_col=x_values_plot_str).sort_values(by='x_plot_str_col')
-                
-                # Usar índices numéricos para el ploteo si x_values_plot_str es el eje X
-                x_axis_for_plot = range(len(df_temp_plot))
-                x_tick_labels_for_plot = df_temp_plot['x_plot_str_col'].tolist()
-                # Guardar las etiquetas para usarlas después con plt.xticks()
-                _use_numeric_x_with_str_labels = True
-
-        except Exception as e_datetime_conv:
-            logger.error(f"Error crítico convirtiendo eje X a datetime en plot_monthly: {e_datetime_conv}. Usando strings.")
-            df_temp_plot = df_plot_full.assign(x_plot_str_col=x_values_source.astype(str)).sort_values(by='x_plot_str_col')
-            # Usar índices numéricos para el ploteo si x_values_source.astype(str) es el eje X
-            x_axis_for_plot = range(len(df_temp_plot))
-            x_tick_labels_for_plot = df_temp_plot['x_plot_str_col'].tolist()
-            _use_numeric_x_with_str_labels = True
-
-        # Inicializar _use_numeric_x_with_str_labels si no se definió en los bloques try/except
-        if '_use_numeric_x_with_str_labels' not in locals():
-            _use_numeric_x_with_str_labels = False
-            x_tick_labels_for_plot = [] # Inicializar para que no falle plt.xticks después
-
-        for value_col in potential_value_cols:
-            if value_col in df_temp_plot and pd.api.types.is_numeric_dtype(df_temp_plot[value_col]):
-                plt.plot(x_axis_for_plot, df_temp_plot[value_col], label=str(value_col), marker='o', linestyle='-')
-
-        plt.title(f'Volumen Mensual de Fiat{plot_title_fiat_part}{title_suffix}')
-        plt.xlabel('Mes (Año-Mes)')
-        plt.ylabel('Volumen Total en Fiat')
-        
-        if _use_numeric_x_with_str_labels:
-            # Si usamos un eje X numérico (0, 1, 2...), establecemos los ticks en esas posiciones
-            # y las etiquetas correspondientes a los strings de 'Año-Mes'
-            plt.xticks(ticks=x_axis_for_plot, labels=x_tick_labels_for_plot, rotation=45, ha="right")
+        # Asegurar que YearMonthStr sea una columna para facilitar el ploteo
+        if isinstance(df_plot_full_orig.index, pd.MultiIndex) and year_month_col_internal in df_plot_full_orig.index.names:
+            df_plot_full = df_plot_full_orig.reset_index()
+        elif df_plot_full_orig.index.name == year_month_col_internal:
+            df_plot_full = df_plot_full_orig.reset_index()
         else:
-            # Si el eje X ya es datetime, la rotación se aplica directamente
-            plt.xticks(rotation=45, ha="right")
+            df_plot_full = df_plot_full_orig
+
+        # Identificar columnas de valor (ej. BUY, SELL)
+        exclude_cols_from_values = {year_month_col_internal, fiat_type_col_internal, 'x_plot_dt_col', 'x_plot_str_col'} 
+        potential_value_cols = [col for col in df_plot_full.columns if col not in exclude_cols_from_values and pd.api.types.is_numeric_dtype(df_plot_full[col])]
+        
+        if not potential_value_cols:
+            logger.warning(f"No hay columnas de valor numéricas para graficar en plot_monthly para {current_fiat_label_for_title}{title_suffix}. Columnas disponibles: {df_plot_full.columns}")
+            continue
+
+        plt.figure(figsize=(15, 9)) # Ajustar tamaño para subtítulo
+        ax = plt.gca()
+        
+        # Preparar el eje X (fechas)
+        if year_month_col_internal not in df_plot_full.columns:
+            logger.error(f"La columna '{year_month_col_internal}' no está en df_plot_full después de reset_index. No se puede graficar.")
+            plt.close()
+            continue
             
-        # Ajustar la densidad de los ticks si hay muchas etiquetas (especialmente para el caso de strings)
-        if _use_numeric_x_with_str_labels and len(x_tick_labels_for_plot) > 12:
-            plt.gca().xaxis.set_major_locator(mticker.MaxNLocator(nbins=12, prune='both'))
-        elif not _use_numeric_x_with_str_labels and isinstance(x_axis_for_plot, pd.Series) and len(x_axis_for_plot) > 12:
-             # Para ejes datetime, MaxNLocator puede ayudar a seleccionar un número razonable de ticks
+        try:
+            # Convertir YearMonthStr a datetime objetos para el ploteo
+            df_plot_full['plot_date'] = pd.to_datetime(df_plot_full[year_month_col_internal] + '-01', errors='coerce')
+            df_plot_full = df_plot_full.dropna(subset=['plot_date']).sort_values(by='plot_date')
+            if df_plot_full.empty:
+                logger.warning(f"DataFrame vacío después de procesar fechas para {current_fiat_label_for_title}.")
+                plt.close()
+                continue
+            x_axis_for_plot = df_plot_full['plot_date']
+        except Exception as e_date_conv:
+            logger.error(f"Error convirtiendo '{year_month_col_internal}' a fechas: {e_date_conv}. Usando strings.")
+            # Fallback a usar strings si la conversión de fecha falla catastróficamente
+            df_plot_full = df_plot_full.sort_values(by=year_month_col_internal)
+            x_axis_for_plot = df_plot_full[year_month_col_internal]
+
+        color_idx = 0
+        for value_col in potential_value_cols:
+            if value_col in df_plot_full and pd.api.types.is_numeric_dtype(df_plot_full[value_col]):
+                series_to_plot = df_plot_full.set_index('plot_date')[value_col] if 'plot_date' in df_plot_full else df_plot_full.set_index(year_month_col_internal)[value_col]
+                
+                line_color = palette[color_idx % len(palette)]
+                plt.plot(series_to_plot.index, series_to_plot.values, label=str(value_col), marker='o', linestyle='-', color=line_color)
+                color_idx += 1
+
+                # Media móvil de 3 meses
+                if len(series_to_plot) >= 3:
+                    rolling_mean_3m = series_to_plot.rolling(window=3, center=True, min_periods=1).mean()
+                    plt.plot(rolling_mean_3m.index, rolling_mean_3m.values, linestyle='--', color=line_color, alpha=0.8, label=f'{value_col} (Media Móvil 3M)')
+        
+        main_chart_title = f'Evolución Mensual del Volumen P2P{plot_title_fiat_part}{title_suffix}'
+        fig_text_explanation_monthly = (
+            f"Este gráfico muestra la evolución mensual del volumen total transaccionado en {current_fiat_label_for_title}. "
+            f"Las líneas de colores representan diferentes tipos de operación (ej. Compra, Venta).\\n"
+            f"Las líneas discontinuas muestran una media móvil de 3 meses para suavizar las fluctuaciones y destacar tendencias."
+        )
+        plt.suptitle(main_chart_title, fontsize=16, y=1.03)
+        ax.set_title(fig_text_explanation_monthly, fontsize=10, pad=20)
+        
+        plt.xlabel('Mes (Año-Mes)', fontsize=12)
+        plt.ylabel(f'Volumen Total Transaccionado ({current_fiat_label_for_title})', fontsize=12)
+        
+        plt.xticks(rotation=45, ha="right")
+        plt.gca().xaxis.set_major_formatter(plt.matplotlib.dates.DateFormatter('%Y-%m'))
+        if len(x_axis_for_plot) > 12:
              plt.gca().xaxis.set_major_locator(mticker.MaxNLocator(nbins=12, prune='both'))
 
-        plt.legend(title='Tipo de Operación')
+        # Formatear eje Y para números grandes
+        ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: utils.format_large_number(x) if x >= 1000 else f"{x:,.0f}"))
+
+        plt.legend(title='Tipo de Operación / Tendencia', fontsize=9)
         plt.grid(True, linestyle='--', alpha=0.7)
+        plt.tight_layout(rect=[0, 0, 1, 0.95]) # Ajuste para suptitle
         
-        fiat_file_part = f"_{current_fiat_label.lower()}_" if current_fiat is not None else "_general_"
+        fiat_file_part = f"_{current_fiat_label_for_file.lower()}_" 
         file_path = os.path.join(out_dir, f'monthly_fiat_volume{fiat_file_part}{file_identifier}.png')
         try:
-            plt.savefig(file_path)
-            logger.info(f"Gráfico de volumen mensual ({current_fiat_label}) guardado en: {file_path}")
+            plt.savefig(file_path, dpi=300) # Añadir DPI
+            logger.info(f"Gráfico de volumen mensual ({current_fiat_label_for_title}) guardado en: {file_path}")
             saved_paths.append(file_path)
         except Exception as e:
             logger.error(f"Error al guardar el gráfico {file_path}: {e}")
-        plt.close()
+        finally:
+            plt.close() # Asegurar que la figura se cierre
+            
     return saved_paths
 
-def plot_pie(df_counts: pd.DataFrame, column_name: str, title: str, fname_prefix: str, out_dir: str, title_suffix: str = "", file_identifier: str = "_general") -> str | None:
+def plot_pie(
+    df_counts: pd.DataFrame, 
+    column_name: str, 
+    title: str, 
+    fname_prefix: str, 
+    out_dir: str, 
+    title_suffix: str = "", 
+    file_identifier: str = "_general",
+    min_percentage_for_slice: float = 1.0 # Porcentaje mínimo para tener su propio slice, el resto va a 'Otros'
+) -> str | None:
     if df_counts.empty or column_name not in df_counts.columns or df_counts[column_name].sum() == 0:
         logger.info(f"No hay datos para el gráfico de torta '{title}'{title_suffix}.")
         return None
-    plt.figure(figsize=(10, 7))
-    plt.pie(df_counts[column_name], labels=df_counts.index, autopct='%1.1f%%', startangle=140, colors=sns.color_palette('pastel', n_colors=len(df_counts.index)))
-    plt.title(f'{title}{title_suffix}')
-    plt.axis('equal')
-    plt.tight_layout()
+
+    # Preparar datos para el gráfico de torta
+    pie_data = df_counts[column_name].copy()
+    total_sum = pie_data.sum()
+    
+    # Agrupar slices pequeños en 'Otros'
+    slices = []
+    labels = []
+    other_sum = 0
+    exploded_slices = [] # Para destacar algún slice si es necesario
+
+    # Ordenar datos para que 'Otros' (si se crea) sea consistente
+    pie_data_sorted = pie_data.sort_values(ascending=False)
+
+    for category, value in pie_data_sorted.items():
+        percentage = (value / total_sum) * 100
+        if percentage < min_percentage_for_slice:
+            other_sum += value
+        else:
+            slices.append(value)
+            labels.append(f"{category} ({percentage:.1f}%)")
+            exploded_slices.append(0) # No explotar por defecto
+    
+    if other_sum > 0:
+        slices.append(other_sum)
+        other_percentage = (other_sum / total_sum) * 100
+        labels.append(f"Otros ({other_percentage:.1f}%)")
+        exploded_slices.append(0)
+
+    if not slices: # Todos los slices eran demasiado pequeños
+        logger.info(f"Todos los slices para '{title}' son menores que {min_percentage_for_slice}%. No se generará gráfico de torta.{title_suffix}")
+        return None
+
+    # Podríamos explotar el slice más grande si es útil
+    # if exploded_slices: exploded_slices[0] = 0.05 # Ejemplo: explotar el primer slice (el más grande)
+
+    plt.figure(figsize=(12, 8)) # Tamaño más grande para mejor legibilidad
+    wedges, texts, autotexts = plt.pie(
+        slices, 
+        labels=None, # Las etiquetas se manejan en la leyenda para evitar superposición
+        autopct=None, # El porcentaje ya está en las etiquetas de la leyenda
+        startangle=90, 
+        colors=sns.color_palette('pastel', n_colors=len(labels)),
+        pctdistance=0.85, # Distancia del centro para autopct si se usara
+        explode=exploded_slices
+    )
+
+    # Añadir un círculo en el centro para hacerlo un "donut chart" (opcional)
+    # centre_circle = plt.Circle((0,0),0.70,fc='white')
+    # fig = plt.gcf()
+    # fig.gca().add_artist(centre_circle)
+
+    main_title = f'{title}{title_suffix}'
+    # El subtítulo podría explicar qué representa el gráfico o el umbral de 'Otros'
+    sub_title_explanation = f"Distribución porcentual. Las categorías con menos del {min_percentage_for_slice}% se agrupan en 'Otros'."
+    
+    plt.suptitle(main_title, fontsize=16, y=0.98)
+    plt.gca().set_title(sub_title_explanation, fontsize=10, pad=10)
+    
+    plt.axis('equal') # Asegura que el gráfico de torta sea circular.
+    
+    # Leyenda mejorada
+    plt.legend(wedges, labels, title="Categorías", loc="center left", bbox_to_anchor=(1, 0, 0.5, 1), fontsize=9)
+
+    plt.tight_layout(rect=[0, 0, 0.85, 0.95]) # Ajustar para dar espacio a la leyenda y suptitle
+
     file_path = os.path.join(out_dir, f'{fname_prefix}{file_identifier}.png')
     try:
-        plt.savefig(file_path)
+        plt.savefig(file_path, dpi=300)
         logger.info(f"Gráfico de torta '{title}' guardado en: {file_path}")
         plt.close()
         return file_path
@@ -222,7 +304,13 @@ def plot_pie(df_counts: pd.DataFrame, column_name: str, title: str, fname_prefix
         plt.close()
         return None
 
-def plot_price_distribution(df_completed: pd.DataFrame, out_dir: str, title_suffix: str = "", file_identifier: str = "_general") -> list[str]:
+def plot_price_distribution(
+    df_completed: pd.DataFrame, 
+    out_dir: str, 
+    title_suffix: str = "", 
+    file_identifier: str = "_general",
+    num_bins: int = 30 # Número de bins para el histograma
+) -> list[str]:
     saved_paths = []
     if df_completed.empty:
         logger.info(f"No hay datos completados para graficar distribución de precios{title_suffix}.")
@@ -239,313 +327,767 @@ def plot_price_distribution(df_completed: pd.DataFrame, out_dir: str, title_suff
         logger.warning(f"Faltan columnas para graficar distribución de precios ({', '.join(missing)}){title_suffix}.")
         return saved_paths
 
+    # Iterar por cada par de Asset/Fiat
     for (asset, fiat), group_data in df_completed.groupby([asset_type_col_internal, fiat_type_col_internal]):
-        fig = None
+        fig = None # Inicializar fig aquí para el manejo de errores
+        main_plot_title = f'Distribución de Precios de {asset} en {fiat}{title_suffix}'
         file_name_plot = f'price_distribution_{str(asset).lower().replace(" ", "_")}_{str(fiat).lower().replace(" ", "_")}{file_identifier}.png'
         file_path = os.path.join(out_dir, file_name_plot)
+
         try:
             if group_data.empty or group_data[price_num_col].isna().all():
-                logger.info(f"Omitiendo gráfico de distribución de precios para {asset}/{fiat} (archivo: {file_name_plot}) debido a datos vacíos o todos los precios son NaN{title_suffix}.")
+                logger.info(f"Omitiendo gráfico de distribución de precios para {asset}/{fiat} (datos vacíos o NaN){title_suffix}.")
                 continue
+            
+            # Convertir a numérico por si acaso, y eliminar NaNs en la columna de precio
+            group_data_cleaned = group_data.copy() # Trabajar con una copia
+            group_data_cleaned[price_num_col] = pd.to_numeric(group_data_cleaned[price_num_col], errors='coerce')
+            group_data_cleaned = group_data_cleaned.dropna(subset=[price_num_col])
+
+            if group_data_cleaned.empty:
+                logger.info(f"Omitiendo gráfico de distribución de precios para {asset}/{fiat} (datos vacíos después de limpiar NaNs en precio){title_suffix}.")
+                continue
+
+            # Crear figura con dos subplots: histograma y boxplot
             fig, axes = plt.subplots(2, 1, figsize=(12, 10), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
-            fig.suptitle(f'Distribución de Precios para {asset}/{fiat}{title_suffix}', fontsize=16)
-            sns.histplot(data=group_data, x=price_num_col, hue=order_type_col_internal, multiple="stack", kde=False, ax=axes[0], palette="muted", linewidth=0.5, bins=30)
-            axes[0].set_title('Histograma de Precios')
-            axes[0].set_xlabel('')
-            axes[0].set_ylabel('Frecuencia')
-            handles, labels = axes[0].get_legend_handles_labels()
-            if handles: axes[0].legend(handles=handles, labels=labels, title=order_type_col_internal)
-            sns.boxplot(data=group_data, x=price_num_col, y=order_type_col_internal, hue=order_type_col_internal, legend=False, ax=axes[1], palette="muted", orient='h')
-            axes[1].set_title('Boxplot de Precios')
-            axes[1].set_xlabel(f'Precio de {asset} en {fiat}')
-            axes[1].set_ylabel(order_type_col_internal)
-            mean_price = group_data[price_num_col].mean()
-            median_price = group_data[price_num_col].median()
-            current_handles, current_labels = axes[0].get_legend_handles_labels()
-            if pd.notna(mean_price):
-                line_mean = axes[0].axvline(mean_price, color='r', linestyle='--', linewidth=1.5, label=f'Media: {mean_price:.2f}')
-                if not any(label.startswith('Media:') for label in current_labels): 
-                     current_handles.append(line_mean); current_labels.append(f'Media: {mean_price:.2f}')
-            if pd.notna(median_price):
-                line_median = axes[0].axvline(median_price, color='g', linestyle=':', linewidth=1.5, label=f'Mediana: {median_price:.2f}')
-                if not any(label.startswith('Mediana:') for label in current_labels):
-                     current_handles.append(line_median); current_labels.append(f'Mediana: {median_price:.2f}')
-            if current_handles: axes[0].legend(handles=current_handles, labels=current_labels, title=order_type_col_internal)
-            plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-            plt.savefig(file_path)
+            plt.suptitle(main_plot_title, fontsize=18, y=0.98)
+
+            # Subtítulo explicativo general
+            sub_title_text = (
+                f"Arriba: Histograma de frecuencias de precios de {asset} en {fiat}, diferenciado por tipo de orden (Compra/Venta). "
+                f"Permite ver los rangos de precios más comunes.\n"
+                f"Abajo: Boxplot que resume la distribución de precios (mediana, cuartiles, outliers) para cada tipo de orden."
+            )
+            axes[0].set_title(sub_title_text, fontsize=10, pad=10) # Título para el primer subplot (actúa como subtítulo general)
+
+            # Histograma en el primer subplot (axes[0])
+            sns.histplot(data=group_data_cleaned, x=price_num_col, hue=order_type_col_internal, 
+                         multiple="layer", kde=True, ax=axes[0], palette="muted", 
+                         linewidth=0.5, bins=num_bins, alpha=0.6)
+            axes[0].set_ylabel('Frecuencia', fontsize=12)
+            axes[0].legend(title=f'Tipo Orden ({order_type_col_internal})', fontsize=9)
+            axes[0].grid(True, linestyle='--', alpha=0.7)
+
+            # Añadir líneas de media y mediana al histograma para cada tipo de orden
+            legend_handles_hist = axes[0].get_legend_handles_labels()[0]
+            legend_labels_hist = axes[0].get_legend_handles_labels()[1]
+
+            for order_t, color in zip(pd.unique(group_data_cleaned[order_type_col_internal]), sns.color_palette("muted", n_colors=group_data_cleaned[order_type_col_internal].nunique())):
+                subset = group_data_cleaned[group_data_cleaned[order_type_col_internal] == order_t]
+                if not subset.empty:
+                    mean_price = subset[price_num_col].mean()
+                    median_price = subset[price_num_col].median()
+                    if pd.notna(mean_price):
+                        line_mean = axes[0].axvline(mean_price, color=color, linestyle='--', linewidth=1.2, label=f'Media {order_t}: {mean_price:.2f}')
+                        if f'Media {order_t}' not in legend_labels_hist:
+                            legend_handles_hist.append(line_mean); legend_labels_hist.append(f'Media {order_t}: {utils.format_large_number(mean_price, precision=2)}')
+                    if pd.notna(median_price):
+                        line_median = axes[0].axvline(median_price, color=color, linestyle=':', linewidth=1.2, label=f'Mediana {order_t}: {median_price:.2f}')
+                        if f'Mediana {order_t}' not in legend_labels_hist:
+                             legend_handles_hist.append(line_median); legend_labels_hist.append(f'Mediana {order_t}: {utils.format_large_number(median_price, precision=2)}')
+            
+            axes[0].legend(handles=legend_handles_hist, labels=legend_labels_hist, title=f'Tipo Orden / Estadísticas', fontsize=9)
+
+            # Boxplot en el segundo subplot (axes[1])
+            sns.boxplot(data=group_data_cleaned, x=price_num_col, y=order_type_col_internal, 
+                        hue=order_type_col_internal, legend=False, ax=axes[1], palette="muted", orient='h')
+            axes[1].set_xlabel(f'Precio de {asset} en {fiat}', fontsize=12)
+            axes[1].set_ylabel(f'Tipo Orden ({order_type_col_internal})', fontsize=12)
+            axes[1].grid(True, linestyle='--', alpha=0.7)
+            
+            # Formatear eje X para números grandes
+            axes[0].xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: utils.format_large_number(x, precision=2)))
+            axes[1].xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: utils.format_large_number(x, precision=2)))
+            
+            plt.tight_layout(rect=[0, 0.03, 1, 0.93]) # Ajustar rect para suptitle y subtítulo
+            plt.savefig(file_path, dpi=300)
             saved_paths.append(file_path)
+
         except (Exception, KeyboardInterrupt) as e:
-            logger.error(f"Failed to generate/save plot {file_path} for {asset}/{fiat}{title_suffix} due to {type(e).__name__}: {e}. Creating placeholder image.")
-            if isinstance(e, KeyboardInterrupt): logger.warning(f"Plot generation for {file_path} was manually interrupted.")
+            logger.error(f"Fallo al generar/guardar gráfico {file_path} para {asset}/{fiat}{title_suffix} debido a {type(e).__name__}: {e}. Creando imagen placeholder.")
+            if isinstance(e, KeyboardInterrupt): logger.warning(f"Generación de gráfico para {file_path} interrumpida manualmente.")
             try:
                 if fig is not None and plt.fignum_exists(fig.number): plt.close(fig)
                 error_fig, error_ax = plt.subplots(figsize=(10, 3))
-                error_text = f"Error al generar gráfico para:\\n{asset}/{fiat}{title_suffix}\\nConsulte los logs."
+                error_text = f"Error al generar gráfico para:\n{main_plot_title}\nConsulte los logs."
                 error_ax.text(0.5, 0.5, error_text, ha='center', va='center', fontsize=10, color='red', wrap=True)
-                error_ax.axis('off'); plt.tight_layout(); error_fig.savefig(file_path)
+                error_ax.axis('off'); plt.tight_layout(); error_fig.savefig(file_path, dpi=100)
                 if file_path not in saved_paths: saved_paths.append(file_path)
-            except Exception as e_placeholder: logger.error(f"CRITICAL: Failed to create placeholder for {file_path}: {e_placeholder}")
+            except Exception as e_placeholder:
+                logger.error(f"CRÍTICO: Fallo al crear placeholder para {file_path}: {e_placeholder}")
             finally: 
                 if 'error_fig' in locals() and plt.fignum_exists(error_fig.number): plt.close(error_fig)
         finally:
             if fig is not None and plt.fignum_exists(fig.number): plt.close(fig)
+            
     return saved_paths
 
-def plot_volume_vs_price_scatter(df_completed: pd.DataFrame, out_dir: str, title_suffix: str = "", file_identifier: str = "_general") -> list[str]:
+def plot_volume_vs_price_scatter(
+    df_completed: pd.DataFrame, 
+    out_dir: str, 
+    title_suffix: str = "", 
+    file_identifier: str = "_general",
+    max_points_to_plot: int = 2000 # Limitar puntos para rendimiento
+) -> list[str]:
     saved_paths = []
-    if df_completed.empty: return saved_paths
-    quantity_num_col = 'Quantity_num'; price_num_col = 'Price_num'; total_price_num_col = 'TotalPrice_num' 
-    asset_type_col_internal = 'asset_type'; fiat_type_col_internal = 'fiat_type'; order_type_col_internal = 'order_type'
+    if df_completed.empty: 
+        logger.info(f"No hay datos completados para scatter Volumen vs Precio{title_suffix}.")
+        return saved_paths
+        
+    quantity_num_col = 'Quantity_num' 
+    price_num_col = 'Price_num'
+    total_price_num_col = 'TotalPrice_num' # Usado para el tamaño de los puntos
+    asset_type_col_internal = 'asset_type'
+    fiat_type_col_internal = 'fiat_type'
+    order_type_col_internal = 'order_type' # Usado para el color (hue)
+    
     required_cols = [quantity_num_col, price_num_col, total_price_num_col, asset_type_col_internal, fiat_type_col_internal, order_type_col_internal]
-    if not all(col in df_completed.columns for col in required_cols): return saved_paths
+    if not all(col in df_completed.columns for col in required_cols):
+        missing = [col for col in required_cols if col not in df_completed.columns]
+        logger.warning(f"Faltan columnas ({missing}) para scatter Volumen vs Precio{title_suffix}.")
+        return saved_paths
 
     df_plot_base = df_completed.copy()
 
+    # Convertir columnas relevantes a numérico y eliminar NaNs
+    for col_to_convert in [quantity_num_col, price_num_col, total_price_num_col]:
+        if col_to_convert in df_plot_base.columns:
+            df_plot_base[col_to_convert] = pd.to_numeric(df_plot_base[col_to_convert], errors='coerce')
+    df_plot_base.dropna(subset=[quantity_num_col, price_num_col, total_price_num_col], inplace=True)
+
+    if df_plot_base.empty: 
+        logger.info(f"Datos vacíos después de conversión a numérico/NaN drop para scatter Volumen vs Precio{title_suffix}.")
+        return saved_paths
+
+    # Iterar por cada par Asset/Fiat
     for (asset_val, fiat_val), group_data_original in df_plot_base.groupby([asset_type_col_internal, fiat_type_col_internal]):
-        if group_data_original.empty or group_data_original[[quantity_num_col, price_num_col]].isna().all().all(): continue
+        if group_data_original.empty:
+            logger.info(f"Datos vacíos para el par {asset_val}/{fiat_val} en scatter Volumen vs Precio{title_suffix}.")
+            continue
         
-        group_data = group_data_original.copy() 
+        group_data_to_plot = group_data_original.copy() 
 
-        for col_to_convert in [quantity_num_col, price_num_col, total_price_num_col]:
-            if col_to_convert in group_data.columns:
-                group_data[col_to_convert] = pd.to_numeric(group_data[col_to_convert], errors='coerce')
+        # Limitar el número de puntos si excede el máximo
+        if len(group_data_to_plot) > max_points_to_plot:
+            logger.info(f"Tomando muestra de {max_points_to_plot} puntos de {len(group_data_to_plot)} para scatter {asset_val}/{fiat_val}{title_suffix}.")
+            group_data_to_plot = group_data_to_plot.sample(n=max_points_to_plot, random_state=42) # random_state para reproducibilidad
 
-        size_data = group_data[total_price_num_col]; 
-        sizes_for_plot = pd.Series([30] * len(group_data), index=group_data.index)
-        if not size_data.isna().all() and not (size_data == 0).all():
-            min_val_sd = size_data.min(); max_val_sd = size_data.max()
+        # Normalizar TotalPrice_num para el tamaño de los puntos, asegurando que sea positivo
+        size_data = group_data_to_plot[total_price_num_col]
+        sizes_for_plot = pd.Series([30] * len(group_data_to_plot), index=group_data_to_plot.index) # Default size
+        if not size_data.empty and size_data.min() >= 0: # Asegurar que todos los valores sean no negativos
+            min_val_sd = size_data.min()
+            max_val_sd = size_data.max()
             if pd.notna(min_val_sd) and pd.notna(max_val_sd) and max_val_sd > min_val_sd:
-                 sizes_norm = (size_data.fillna(0) - min_val_sd) / (max_val_sd - min_val_sd); sizes_for_plot = sizes_norm * 490 + 10
-            elif pd.notna(min_val_sd): sizes_for_plot = pd.Series([50] * len(group_data), index=group_data.index)
+                 sizes_norm = (size_data - min_val_sd) / (max_val_sd - min_val_sd) 
+                 sizes_for_plot = sizes_norm * 480 + 20 # Rango de tamaño de 20 a 500
+            elif pd.notna(min_val_sd) and min_val_sd == max_val_sd: # Todos los valores son iguales (y no NaN)
+                 sizes_for_plot = pd.Series([100] * len(group_data_to_plot), index=group_data_to_plot.index)
         
-        sizes_for_plot = sizes_for_plot.fillna(30).clip(lower=10, upper=500).astype('float64') 
+        sizes_for_plot = sizes_for_plot.fillna(30).clip(lower=10, upper=500).astype('float64')
 
-        plt.figure(figsize=(14, 8))
-        scatter_plot = sns.scatterplot(data=group_data, x=quantity_num_col, y=price_num_col, hue=order_type_col_internal, size=sizes_for_plot, sizes=(20, 500), alpha=0.7, palette="viridis", legend="auto")
-        plt.title(f"""Volumen vs. Precio para {asset_val}/{fiat_val}{title_suffix}\\n(Tamaño del punto proporcional al Monto Total Fiat)""")
-        plt.xlabel(f'Volumen del Activo ({asset_val})'); plt.ylabel(f'Precio en {fiat_val}')
+
+        fig, ax = plt.subplots(figsize=(14, 9)) # Usar fig, ax
+        
+        scatter_plot = sns.scatterplot(
+            data=group_data_to_plot, 
+            x=quantity_num_col, 
+            y=price_num_col, 
+            hue=order_type_col_internal, 
+            size=sizes_for_plot, 
+            sizes=(20, 500), 
+            alpha=0.6, 
+            palette="viridis", 
+            legend="auto",
+            ax=ax # Especificar el ax
+        )
+        
+        main_title = f'Volumen de Transacción vs. Precio para {asset_val}/{fiat_val}{title_suffix}'
+        sub_title_text = f"Cada punto es una transacción. Color indica Compra/Venta. Tamaño del punto proporcional al Monto Total en {fiat_val}."
+        fig.suptitle(main_title, fontsize=16, y=0.99) # Usar fig.suptitle
+        ax.set_title(sub_title_text, fontsize=10, pad=10)
+        
+        ax.set_xlabel(f'Volumen del Activo ({asset_val})', fontsize=12)
+        ax.set_ylabel(f'Precio Unitario en {fiat_val}', fontsize=12) # Corregido aquí
+        
         handles, labels = scatter_plot.get_legend_handles_labels()
+        legend_params = {} # Inicializar legend_params
         if handles:
-            legend_params = {'title': f'{order_type_col_internal} / Monto'}
-            if len(handles) > 5: legend_params['loc'] = 'upper left'; legend_params['bbox_to_anchor'] = (1.05, 1)
-            else: legend_params['loc'] = 'best'
-            scatter_plot.legend(**legend_params)
-        plt.grid(True, linestyle='--', alpha=0.7)
-        file_path = os.path.join(out_dir, f'volume_vs_price_scatter_{str(asset_val).lower().replace(" ", "_")}_{str(fiat_val).lower().replace(" ", "_")}{file_identifier}.png')
+            legend_params = {'title': f'{order_type_col_internal.replace("_", " ").title()} / Monto Total'}
+            if len(handles) > 6: 
+                legend_params['loc'] = 'center left'
+                legend_params['bbox_to_anchor'] = (1.01, 0.5) 
+            else:
+                legend_params['loc'] = 'best'
+            ax.legend(**legend_params, fontsize=9) # Usar ax.legend
+
+        ax.grid(True, linestyle='--', alpha=0.7)
+        
+        ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: utils.format_large_number(x, precision=2)))
+        ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: utils.format_large_number(x, precision=2)))
+        
+        # Ajustar el layout para acomodar la leyenda si está fuera
+        fig.tight_layout(rect=[0, 0, 0.88 if legend_params.get('bbox_to_anchor') else 1, 0.95])
+        
+        file_name_scatter = f'volume_vs_price_scatter_{str(asset_val).lower().replace(" ", "_")}_{str(fiat_val).lower().replace(" ", "_")}{file_identifier}.png'
+        file_path = os.path.join(out_dir, file_name_scatter)
         try:
-            plt.savefig(file_path, bbox_inches='tight'); saved_paths.append(file_path); plt.close()
-        except Exception as e: logger.error(f"Error al guardar el gráfico {file_path}: {e}"); plt.close()
-    return saved_paths
-
-def plot_price_over_time(df_completed: pd.DataFrame, out_dir: str, title_suffix: str = "", file_identifier: str = "_general") -> list[str]:
-    saved_paths = []
-    if df_completed.empty: return saved_paths
-    price_num_col = 'Price_num'; match_time_local_col = 'Match_time_local'; asset_type_col_internal = 'asset_type'; fiat_type_col_internal = 'fiat_type'; order_type_col_internal = 'order_type'
-    required_cols = [price_num_col, match_time_local_col, asset_type_col_internal, fiat_type_col_internal, order_type_col_internal]
-    if not all(col in df_completed.columns for col in required_cols) or not pd.api.types.is_datetime64_any_dtype(df_completed[match_time_local_col]): return saved_paths
-    for (asset_val, fiat_val), group_data in df_completed.groupby([asset_type_col_internal, fiat_type_col_internal]):
-        if group_data.empty or group_data[price_num_col].isna().all(): continue
-        group_data_sorted = group_data.sort_values(by=match_time_local_col); plt.figure(figsize=(15, 8))
-        for order_val, order_group in group_data_sorted.groupby(order_type_col_internal):
-            if order_group.empty or order_group[price_num_col].isna().all(): continue
-            plt.plot(order_group[match_time_local_col], order_group[price_num_col], marker='.', linestyle='-', alpha=0.5, label=f'Precio {order_val}')
-            if len(order_group) >= 7: plt.plot(order_group[match_time_local_col], order_group[price_num_col].rolling(window=7, center=True, min_periods=1).mean(), linestyle='--', label=f'Media Móvil 7P {order_val}')
-            if len(order_group) >= 30: plt.plot(order_group[match_time_local_col], order_group[price_num_col].rolling(window=30, center=True, min_periods=1).mean(), linestyle=':', label=f'Media Móvil 30P {order_val}')
-        plt.title(f'Evolución del Precio para {asset_val}/{fiat_val}{title_suffix}'); plt.xlabel('Fecha y Hora (Local)'); plt.ylabel(f'Precio en {fiat_val}'); plt.xticks(rotation=45, ha='right')
-        plt.legend(title='Serie de Precio / Media Móvil'); plt.grid(True, linestyle='--', alpha=0.7); plt.tight_layout()
-        file_path = os.path.join(out_dir, f'price_over_time_{str(asset_val).lower().replace(" ", "_")}_{str(fiat_val).lower().replace(" ", "_")}{file_identifier}.png')
-        try: plt.savefig(file_path); saved_paths.append(file_path); plt.close()
-        except Exception as e: logger.error(f"Error al guardar el gráfico {file_path}: {e}"); plt.close()
-    return saved_paths
-
-def plot_volume_over_time(df_completed: pd.DataFrame, out_dir: str, title_suffix: str = "", file_identifier: str = "_general") -> list[str]:
-    saved_paths = []
-    if df_completed.empty: return saved_paths
-    quantity_num_col = 'Quantity_num'; total_price_num_col = 'TotalPrice_num'; match_time_local_col = 'Match_time_local'; asset_type_col_internal = 'asset_type'; fiat_type_col_internal = 'fiat_type'
-    required_cols_base = [match_time_local_col, asset_type_col_internal, fiat_type_col_internal]
-    if not (quantity_num_col in df_completed.columns or total_price_num_col in df_completed.columns) or not all(col in df_completed.columns for col in required_cols_base) or not pd.api.types.is_datetime64_any_dtype(df_completed[match_time_local_col]): return saved_paths
-    volume_cols_to_plot = {}
-    if quantity_num_col in df_completed.columns: volume_cols_to_plot[quantity_num_col] = ('Volumen de Activo', asset_type_col_internal)
-    if total_price_num_col in df_completed.columns: volume_cols_to_plot[total_price_num_col] = ('Volumen en Fiat', fiat_type_col_internal)
-    for (asset_val, fiat_val), group_data in df_completed.groupby([asset_type_col_internal, fiat_type_col_internal]):
-        if group_data.empty: continue
-        group_data_sorted = group_data.sort_values(by=match_time_local_col)
-        for vol_col, (vol_label_base, unit_col_name_from_map) in volume_cols_to_plot.items():
-            if group_data_sorted[vol_col].isna().all() or (group_data_sorted[vol_col] == 0).all(): continue
-            plt.figure(figsize=(15, 8)); label_unit = asset_val if unit_col_name_from_map == asset_type_col_internal else fiat_val
-            plt.plot(group_data_sorted[match_time_local_col], group_data_sorted[vol_col], marker='.', linestyle='-', alpha=0.7, label=f'{vol_label_base} ({label_unit})')
-            if len(group_data_sorted) >= 7: plt.plot(group_data_sorted[match_time_local_col], group_data_sorted[vol_col].rolling(window=7, center=True, min_periods=1).mean(), linestyle='--', label='Media Móvil 7P')
-            if len(group_data_sorted) >= 30: plt.plot(group_data_sorted[match_time_local_col], group_data_sorted[vol_col].rolling(window=30, center=True, min_periods=1).mean(), linestyle=':', label='Media Móvil 30P')
-            y_label = f'{vol_label_base} ({label_unit})'; plt.title(f'Evolución del {vol_label_base} para {asset_val}/{fiat_val}{title_suffix}')
-            plt.xlabel('Fecha y Hora (Local)'); plt.ylabel(y_label); plt.xticks(rotation=45, ha='right'); plt.legend(title='Serie de Volumen / Media Móvil'); plt.grid(True, linestyle='--', alpha=0.7); plt.tight_layout()
-            vol_type_suffix = "fiat_value" if vol_col == total_price_num_col else "asset_quantity"
-            file_path = os.path.join(out_dir, f'volume_over_time_{vol_type_suffix}_{str(asset_val).lower().replace(" ", "_")}_{str(fiat_val).lower().replace(" ", "_")}{file_identifier}.png')
-            try: plt.savefig(file_path); saved_paths.append(file_path); plt.close()
-            except Exception as e: logger.error(f"Error al guardar el gráfico {file_path}: {e}"); plt.close()
-    return saved_paths
-
-def plot_price_vs_payment_method(df_completed: pd.DataFrame, out_dir: str, title_suffix: str = "", file_identifier: str = "_general") -> list[str]:
-    saved_paths = []
-    if df_completed.empty: return saved_paths
-    price_num_col = 'Price_num'; payment_method_col_internal = 'payment_method'; order_type_col_internal = 'order_type'; fiat_type_col_internal = 'fiat_type'; asset_type_col_internal = 'asset_type'
-    required_cols_in_df = [price_num_col, payment_method_col_internal, order_type_col_internal, fiat_type_col_internal, asset_type_col_internal]
-    if not all(col in df_completed.columns for col in required_cols_in_df): return saved_paths
-    df_plot_base = df_completed.copy(); df_plot_base[payment_method_col_internal] = df_plot_base[payment_method_col_internal].fillna('Desconocido')
-    for (asset_val, fiat_val), group_data_asset_fiat in df_plot_base.groupby([asset_type_col_internal, fiat_type_col_internal]):
-        if group_data_asset_fiat.empty or group_data_asset_fiat[payment_method_col_internal].nunique() == 0 or group_data_asset_fiat[price_num_col].isna().all(): continue
-        payment_methods_count = group_data_asset_fiat[payment_method_col_internal].nunique(); plot_data_final = group_data_asset_fiat; effective_pm_count = payment_methods_count; top_n_methods = 15 
-        if payment_methods_count > top_n_methods:
-            main_methods = group_data_asset_fiat[payment_method_col_internal].value_counts().nlargest(top_n_methods).index
-            plot_data_final = group_data_asset_fiat[group_data_asset_fiat[payment_method_col_internal].isin(main_methods)]; effective_pm_count = len(main_methods)
-        if plot_data_final.empty: continue
-        plt.figure(figsize=(max(12, effective_pm_count * 1.1), 9)); sns.boxplot(x=payment_method_col_internal, y=price_num_col, hue=order_type_col_internal, data=plot_data_final, palette="Set3")
-        plt.title(f'Precio de {asset_val} vs. Método de Pago en {fiat_val}{title_suffix}'); plt.xlabel('Método de Pago') 
-        plt.ylabel(f'Precio de {asset_val} en {fiat_val}'); plt.xticks(rotation=45, ha='right'); plt.legend(title=order_type_col_internal); plt.grid(axis='y', linestyle='--', alpha=0.7); plt.tight_layout()
-        file_path = os.path.join(out_dir, f'price_vs_payment_method_{str(asset_val).lower().replace(" ", "_")}_{str(fiat_val).lower().replace(" ", "_")}{file_identifier}.png')
-        try: plt.savefig(file_path); saved_paths.append(file_path); plt.close()
-        except Exception as e: logger.error(f"Error al guardar el gráfico {file_path}: {e}"); plt.close()
-    return saved_paths
-
-def plot_activity_heatmap(df_all_statuses: pd.DataFrame, out_dir: str, title_suffix: str = "", file_identifier: str = "_general") -> str | None:
-    logger.debug(f"plot_activity_heatmap_v2_debug: Recibido df_all_statuses con {df_all_statuses.shape[0]} filas y {df_all_statuses.shape[1]} columnas.")
-    if df_all_statuses.empty:
-        logger.warning(f"plot_activity_heatmap_v2_debug: df_all_statuses está vacío. No se generará heatmap.{title_suffix}")
-        return None
-        
-    match_time_local_col = 'Match_time_local'
-    order_number_col_internal = 'order_number' 
-    hour_local_col_internal = 'hour_local' 
-    required_cols = [match_time_local_col, order_number_col_internal, hour_local_col_internal]
-
-    df_plot = df_all_statuses.copy() # Trabajar con una copia
-
-    # Asegurar que Match_time_local sea datetime de Pandas
-    if match_time_local_col in df_plot.columns:
-        if not pd.api.types.is_datetime64_any_dtype(df_plot[match_time_local_col]):
-            logger.debug(f"plot_activity_heatmap_v2_debug: Columna '{match_time_local_col}' no es datetime64 nativo de Pandas. Tipo actual: {df_plot[match_time_local_col].dtype}. Intentando conversión...")
-            try:
-                df_plot[match_time_local_col] = pd.to_datetime(df_plot[match_time_local_col])
-                logger.debug(f"plot_activity_heatmap_v2_debug: Columna '{match_time_local_col}' convertida a {df_plot[match_time_local_col].dtype}.")
-            except Exception as e_conv:
-                logger.warning(f"plot_activity_heatmap_v2_debug: Falló la conversión de '{match_time_local_col}' a datetime de Pandas: {e_conv}. No se generará heatmap.{title_suffix}")
-                return None
-    else:
-        logger.warning(f"plot_activity_heatmap_v2_debug: Columna requerida '{match_time_local_col}' no encontrada. No se generará heatmap.{title_suffix}")
-        return None
-
-    missing_cols = [col for col in required_cols if col not in df_plot.columns]
-    if missing_cols:
-        # Este cheque es un poco redundante ahora que verificamos Match_time_local arriba, pero lo mantenemos por si acaso para otras columnas
-        logger.warning(f"plot_activity_heatmap_v2_debug: Faltan columnas requeridas (después de conversión de fecha): {missing_cols}. No se generará heatmap.{title_suffix}")
-        return None
-
-    # Esta comprobación ahora debería pasar si la conversión fue exitosa
-    if not pd.api.types.is_datetime64_any_dtype(df_plot[match_time_local_col]):
-        logger.warning(f"plot_activity_heatmap_v2_debug: Columna '{match_time_local_col}' aún no es de tipo datetime después del intento de conversión. No se generará heatmap.{title_suffix}")
-        return None
-        
-    # df_plot = df_all_statuses.copy() # Movido arriba
-    logger.debug(f"plot_activity_heatmap_v2_debug: Columnas en df_plot: {df_plot.columns.tolist()}")
-
-    if 'day_of_week' not in df_plot.columns or df_plot['day_of_week'].isna().all():
-        if pd.api.types.is_datetime64_any_dtype(df_plot[match_time_local_col]):
-            df_plot['day_of_week'] = df_plot[match_time_local_col].dt.day_name()
-            logger.debug(f"plot_activity_heatmap_v2_debug: Columna 'day_of_week' creada.")
-        else:
-            logger.warning(f"plot_activity_heatmap_v2_debug: '{match_time_local_col}' no es datetime, no se pudo crear 'day_of_week'. No se generará heatmap.{title_suffix}")
-            return None
+            fig.savefig(file_path, dpi=300) # Usar fig.savefig
+        except Exception as e: 
+            logger.error(f"Error al guardar el gráfico scatter {file_path}: {e}")
+        finally:
+            plt.close(fig) # Usar plt.close(fig)
             
-    days_ordered = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-    if 'day_of_week' in df_plot.columns and not df_plot['day_of_week'].isna().all():
-        df_plot['day_of_week'] = pd.Categorical(df_plot['day_of_week'], categories=days_ordered, ordered=True)
-        logger.debug(f"plot_activity_heatmap_v2_debug: Columna 'day_of_week' convertida a categórica ordenada.")
-    else:
-        logger.warning(f"plot_activity_heatmap_v2_debug: Columna 'day_of_week' no es válida o contiene solo NaNs. No se generará heatmap.{title_suffix}")
+    return saved_paths
+
+def plot_price_over_time(
+    df_completed: pd.DataFrame, 
+    out_dir: str, 
+    title_suffix: str = "", 
+    file_identifier: str = "_general",
+    rolling_window_short: int = 7, # Corta media móvil (ej. 7 periodos)
+    rolling_window_long: int = 30  # Larga media móvil (ej. 30 periodos)
+) -> list[str]:
+    saved_paths = []
+    if df_completed.empty: 
+        logger.info(f"No hay datos completados para graficar Precio a lo largo del Tiempo{title_suffix}.")
+        return saved_paths
+        
+    price_num_col = 'Price_num'
+    match_time_local_col = 'Match_time_local'
+    asset_type_col_internal = 'asset_type'
+    fiat_type_col_internal = 'fiat_type'
+    order_type_col_internal = 'order_type'
+    
+    required_cols = [price_num_col, match_time_local_col, asset_type_col_internal, fiat_type_col_internal, order_type_col_internal]
+    if not all(col in df_completed.columns for col in required_cols):
+        missing = [col for col in required_cols if col not in df_completed.columns]
+        logger.warning(f"Faltan columnas ({missing}) para Precio a lo largo del Tiempo{title_suffix}.")
+        return saved_paths
+
+    # Asegurar que la columna de tiempo sea datetime y la de precio sea numérica
+    df_plot_base = df_completed.copy()
+    try:
+        if not pd.api.types.is_datetime64_any_dtype(df_plot_base[match_time_local_col]):
+            df_plot_base[match_time_local_col] = pd.to_datetime(df_plot_base[match_time_local_col], errors='coerce')
+        df_plot_base[price_num_col] = pd.to_numeric(df_plot_base[price_num_col], errors='coerce')
+        df_plot_base.dropna(subset=[match_time_local_col, price_num_col], inplace=True)
+    except Exception as e:
+        logger.error(f"Error en la conversión de tipos para Precio a lo largo del Tiempo: {e}{title_suffix}.")
+        return saved_paths
+
+    if df_plot_base.empty: 
+        logger.info(f"Datos vacíos después de conversión/NaN drop para Precio a lo largo del Tiempo{title_suffix}.")
+        return saved_paths
+
+    # Iterar por cada par Asset/Fiat
+    for (asset_val, fiat_val), group_data_asset_fiat in df_plot_base.groupby([asset_type_col_internal, fiat_type_col_internal]):
+        if group_data_asset_fiat.empty:
+            logger.info(f"Datos vacíos para el par {asset_val}/{fiat_val} en Precio a lo largo del Tiempo{title_suffix}.")
+            continue
+        
+        group_data_sorted = group_data_asset_fiat.sort_values(by=match_time_local_col)
+        
+        fig, ax = plt.subplots(figsize=(15, 8))
+        palette = sns.color_palette("husl", n_colors=group_data_sorted[order_type_col_internal].nunique() * 3) # Colores para datos y medias
+        color_idx = 0
+
+        # Iterar por cada tipo de orden (BUY/SELL)
+        for order_val, order_group in group_data_sorted.groupby(order_type_col_internal):
+            if order_group.empty or order_group[price_num_col].isna().all():
+                logger.info(f"Datos vacíos o todos NaN para {order_val} en {asset_val}/{fiat_val} en Precio a lo largo del Tiempo{title_suffix}.")
+                continue
+            
+            # Color base para este tipo de orden
+            base_color = palette[color_idx * 3]
+            ax.plot(order_group[match_time_local_col], order_group[price_num_col], marker='.', linestyle='-', alpha=0.4, label=f'Precio {order_val}', color=base_color)
+            
+            # Media Móvil Corta
+            if len(order_group) >= rolling_window_short:
+                short_rolling_mean = order_group[price_num_col].rolling(window=rolling_window_short, center=True, min_periods=1).mean()
+                ax.plot(order_group[match_time_local_col], short_rolling_mean, linestyle='--', label=f'Media Móvil {rolling_window_short}P {order_val}', color=palette[color_idx * 3 + 1], linewidth=1.5)
+            
+            # Media Móvil Larga
+            if len(order_group) >= rolling_window_long:
+                long_rolling_mean = order_group[price_num_col].rolling(window=rolling_window_long, center=True, min_periods=1).mean()
+                ax.plot(order_group[match_time_local_col], long_rolling_mean, linestyle=':', label=f'Media Móvil {rolling_window_long}P {order_val}', color=palette[color_idx * 3 + 2], linewidth=1.8)
+            color_idx += 1
+
+        main_title = f'Evolución del Precio para {asset_val}/{fiat_val}{title_suffix}'
+        sub_title_text = f"Muestra el precio de las transacciones ({asset_val} en {fiat_val}) a lo largo del tiempo, con medias móviles de {rolling_window_short} y {rolling_window_long} periodos."
+        fig.suptitle(main_title, fontsize=16, y=0.98)
+        ax.set_title(sub_title_text, fontsize=10, pad=10)
+        
+        ax.set_xlabel('Fecha y Hora (Local)', fontsize=12)
+        ax.set_ylabel(f'Precio en {fiat_val}', fontsize=12)
+        
+        ax.xaxis.set_major_formatter(plt.matplotlib.dates.DateFormatter('%Y-%m-%d %H:%M'))
+        plt.xticks(rotation=45, ha='right')
+        
+        # Ajustar la densidad de los ticks del eje X si hay muchos datos
+        num_data_points = len(group_data_sorted[match_time_local_col].unique()) # Estimación del número de ticks necesarios
+        if num_data_points > 20: # Umbral ajustable
+            ax.xaxis.set_major_locator(mticker.MaxNLocator(nbins=15, prune='both')) # Mostrar menos ticks
+        
+        ax.legend(title='Serie de Precio / Media Móvil', fontsize=9)
+        ax.grid(True, linestyle='--', alpha=0.7)
+        
+        ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: utils.format_large_number(x, precision=2)))
+        
+        fig.tight_layout(rect=[0, 0, 1, 0.94]) # Ajustar para suptitle y título
+        
+        file_name_price_time = f'price_over_time_{str(asset_val).lower().replace(" ", "_")}_{str(fiat_val).lower().replace(" ", "_")}{file_identifier}.png'
+        file_path = os.path.join(out_dir, file_name_price_time)
+        try: 
+            fig.savefig(file_path, dpi=300)
+            saved_paths.append(file_path)
+        except Exception as e: 
+            logger.error(f"Error al guardar el gráfico Precio a lo largo del Tiempo {file_path}: {e}")
+        finally:
+            plt.close(fig)
+            
+    return saved_paths
+
+def plot_volume_over_time(
+    df_completed: pd.DataFrame, 
+    out_dir: str, 
+    title_suffix: str = "", 
+    file_identifier: str = "_general",
+    rolling_window_short: int = 7,
+    rolling_window_long: int = 30
+) -> list[str]:
+    saved_paths = []
+    if df_completed.empty: 
+        logger.info(f"No hay datos completados para graficar Volumen a lo largo del Tiempo{title_suffix}.")
+        return saved_paths
+
+    # Columnas internas esperadas y de valor
+    quantity_num_col = 'Quantity_num'       # Volumen en términos del activo
+    total_price_num_col = 'TotalPrice_num'  # Volumen en términos de fiat
+    match_time_local_col = 'Match_time_local'
+    asset_type_col_internal = 'asset_type'
+    fiat_type_col_internal = 'fiat_type'
+    
+    required_cols_base = [match_time_local_col, asset_type_col_internal, fiat_type_col_internal]
+    if not all(col in df_completed.columns for col in required_cols_base):
+        missing = [col for col in required_cols_base if col not in df_completed.columns]
+        logger.warning(f"Faltan columnas base ({missing}) para Volumen a lo largo del Tiempo{title_suffix}.")
+        return saved_paths
+
+    # Determinar qué columnas de volumen están disponibles para graficar
+    volume_cols_to_plot_map = {}
+    if quantity_num_col in df_completed.columns: 
+        volume_cols_to_plot_map[quantity_num_col] = ('Volumen de Activo', asset_type_col_internal)
+    if total_price_num_col in df_completed.columns: 
+        volume_cols_to_plot_map[total_price_num_col] = ('Volumen en Fiat', fiat_type_col_internal)
+
+    if not volume_cols_to_plot_map:
+        logger.warning(f"No se encontraron columnas de volumen ({quantity_num_col} o {total_price_num_col}) para graficar{title_suffix}.")
+        return saved_paths
+
+    # Asegurar que la columna de tiempo sea datetime y las de volumen sean numéricas
+    df_plot_base = df_completed.copy()
+    try:
+        if not pd.api.types.is_datetime64_any_dtype(df_plot_base[match_time_local_col]):
+            df_plot_base[match_time_local_col] = pd.to_datetime(df_plot_base[match_time_local_col], errors='coerce')
+        for vol_col_name in volume_cols_to_plot_map.keys():
+            if vol_col_name in df_plot_base.columns:
+                df_plot_base[vol_col_name] = pd.to_numeric(df_plot_base[vol_col_name], errors='coerce')
+        df_plot_base.dropna(subset=[match_time_local_col] + list(volume_cols_to_plot_map.keys()), how='any', inplace=True)
+    except Exception as e:
+        logger.error(f"Error en la conversión de tipos para Volumen a lo largo del Tiempo: {e}{title_suffix}.")
+        return saved_paths
+
+    if df_plot_base.empty: 
+        logger.info(f"Datos vacíos después de conversión/NaN drop para Volumen a lo largo del Tiempo{title_suffix}.")
+        return saved_paths
+
+    # Iterar por cada par Asset/Fiat
+    for (asset_val, fiat_val), group_data_asset_fiat in df_plot_base.groupby([asset_type_col_internal, fiat_type_col_internal]):
+        if group_data_asset_fiat.empty:
+            logger.info(f"Datos vacíos para el par {asset_val}/{fiat_val} en Volumen a lo largo del Tiempo{title_suffix}.")
+            continue
+        
+        group_data_sorted = group_data_asset_fiat.sort_values(by=match_time_local_col)
+
+        # Iterar por cada tipo de volumen a graficar (activo y/o fiat)
+        for vol_col, (vol_label_base, unit_col_name_for_label) in volume_cols_to_plot_map.items():
+            if group_data_sorted[vol_col].isna().all() or (group_data_sorted[vol_col] == 0).all():
+                logger.info(f"Volumen en '{vol_col}' es todo NaN o cero para {asset_val}/{fiat_val}. Omitiendo gráfico.{title_suffix}")
+                continue
+
+            fig, ax = plt.subplots(figsize=(15, 8))
+            
+            # Determinar la unidad para la etiqueta del eje Y y el título
+            label_unit = asset_val if unit_col_name_for_label == asset_type_col_internal else fiat_val
+            y_axis_label = f'{vol_label_base} ({label_unit})'
+            current_plot_main_title = f'Evolución del {vol_label_base} para {asset_val}/{fiat_val}{title_suffix}'
+            current_plot_subtitle = f"Muestra el {vol_label_base.lower()} transaccionado ({asset_val} en {fiat_val}) a lo largo del tiempo, con medias móviles."
+
+            # Graficar la serie de volumen principal
+            ax.plot(group_data_sorted[match_time_local_col], group_data_sorted[vol_col], marker='.', linestyle='-', alpha=0.5, label=f'{vol_label_base}', color=sns.color_palette("tab10")[0])
+            
+            # Media Móvil Corta
+            if len(group_data_sorted) >= rolling_window_short:
+                short_rolling_mean = group_data_sorted[vol_col].rolling(window=rolling_window_short, center=True, min_periods=1).mean()
+                ax.plot(group_data_sorted[match_time_local_col], short_rolling_mean, linestyle='--', label=f'Media Móvil {rolling_window_short}P', color=sns.color_palette("tab10")[1], linewidth=1.5)
+            
+            # Media Móvil Larga
+            if len(group_data_sorted) >= rolling_window_long:
+                long_rolling_mean = group_data_sorted[vol_col].rolling(window=rolling_window_long, center=True, min_periods=1).mean()
+                ax.plot(group_data_sorted[match_time_local_col], long_rolling_mean, linestyle=':', label=f'Media Móvil {rolling_window_long}P', color=sns.color_palette("tab10")[2], linewidth=1.8)
+
+            fig.suptitle(current_plot_main_title, fontsize=16, y=0.98)
+            ax.set_title(current_plot_subtitle, fontsize=10, pad=10)
+            ax.set_xlabel('Fecha y Hora (Local)', fontsize=12)
+            ax.set_ylabel(y_axis_label, fontsize=12)
+            
+            ax.xaxis.set_major_formatter(plt.matplotlib.dates.DateFormatter('%Y-%m-%d %H:%M'))
+            plt.xticks(rotation=45, ha='right')
+
+            num_data_points_vol = len(group_data_sorted[match_time_local_col].unique())
+            if num_data_points_vol > 20: 
+                ax.xaxis.set_major_locator(mticker.MaxNLocator(nbins=15, prune='both'))
+            
+            ax.legend(title='Serie de Volumen / Media Móvil', fontsize=9)
+            ax.grid(True, linestyle='--', alpha=0.7)
+            ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: utils.format_large_number(x)))
+            
+            fig.tight_layout(rect=[0, 0, 1, 0.94])
+            
+            vol_type_suffix_filename = "fiat_value" if vol_col == total_price_num_col else "asset_quantity"
+            file_name_volume_time = f'volume_over_time_{vol_type_suffix_filename}_{str(asset_val).lower().replace(" ", "_")}_{str(fiat_val).lower().replace(" ", "_")}{file_identifier}.png'
+            file_path = os.path.join(out_dir, file_name_volume_time)
+            try: 
+                fig.savefig(file_path, dpi=300)
+                saved_paths.append(file_path)
+            except Exception as e: 
+                logger.error(f"Error al guardar el gráfico Volumen a lo largo del Tiempo {file_path}: {e}")
+            finally:
+                plt.close(fig)
+                
+    return saved_paths
+
+def plot_price_vs_payment_method(
+    df_completed: pd.DataFrame, 
+    out_dir: str, 
+    title_suffix: str = "", 
+    file_identifier: str = "_general",
+    top_n_methods: int = 10 # Mostrar los N métodos de pago más comunes
+) -> list[str]:
+    saved_paths = []
+    if df_completed.empty: 
+        logger.info(f"No hay datos completados para graficar Precio vs Método de Pago{title_suffix}.")
+        return saved_paths
+
+    # Columnas internas esperadas
+    price_num_col = 'Price_num'
+    payment_method_col_internal = 'payment_method'
+    order_type_col_internal = 'order_type' # Para el hue (color)
+    fiat_type_col_internal = 'fiat_type'
+    asset_type_col_internal = 'asset_type'
+    
+    required_cols_in_df = [price_num_col, payment_method_col_internal, order_type_col_internal, fiat_type_col_internal, asset_type_col_internal]
+    if not all(col in df_completed.columns for col in required_cols_in_df):
+        missing = [col for col in required_cols_in_df if col not in df_completed.columns]
+        logger.warning(f"Faltan columnas ({missing}) para Precio vs Método de Pago{title_suffix}.")
+        return saved_paths
+
+    df_plot_base = df_completed.copy()
+    df_plot_base[payment_method_col_internal] = df_plot_base[payment_method_col_internal].fillna('Desconocido')
+    df_plot_base[price_num_col] = pd.to_numeric(df_plot_base[price_num_col], errors='coerce')
+    df_plot_base.dropna(subset=[price_num_col, payment_method_col_internal], inplace=True)
+
+    if df_plot_base.empty: 
+        logger.info(f"Datos vacíos después de limpieza para Precio vs Método de Pago{title_suffix}.")
+        return saved_paths
+
+    # Iterar por cada par Asset/Fiat
+    for (asset_val, fiat_val), group_data_asset_fiat in df_plot_base.groupby([asset_type_col_internal, fiat_type_col_internal]):
+        if group_data_asset_fiat.empty or group_data_asset_fiat[payment_method_col_internal].nunique() == 0 or group_data_asset_fiat[price_num_col].isna().all():
+            logger.info(f"Omitiendo {asset_val}/{fiat_val} por datos insuficientes para Precio vs Método de Pago{title_suffix}.")
+            continue
+        
+        # Limitar al Top N métodos de pago por frecuencia para este par Asset/Fiat
+        payment_methods_to_show = group_data_asset_fiat[payment_method_col_internal].value_counts().nlargest(top_n_methods).index
+        plot_data_final = group_data_asset_fiat[group_data_asset_fiat[payment_method_col_internal].isin(payment_methods_to_show)]
+        effective_pm_count = plot_data_final[payment_method_col_internal].nunique()
+
+        if plot_data_final.empty or effective_pm_count == 0:
+            logger.info(f"Omitiendo {asset_val}/{fiat_val} (después de Top N) por datos insuficientes para Precio vs Método de Pago{title_suffix}.")
+            continue
+            
+        fig, ax = plt.subplots(figsize=(max(12, effective_pm_count * 1.1), 9))
+        
+        # Ordenar los métodos de pago en el eje X por su mediana de precio (opcional, o alfabético)
+        # sorted_methods = plot_data_final.groupby(payment_method_col_internal)[price_num_col].median().sort_values().index
+        sorted_methods = sorted(plot_data_final[payment_method_col_internal].unique())
+
+        sns.boxplot(
+            x=payment_method_col_internal, 
+            y=price_num_col, 
+            hue=order_type_col_internal, 
+            data=plot_data_final, 
+            palette="Set2", # Paleta diferente para distinguir de otros gráficos
+            order=sorted_methods,
+            ax=ax
+        )
+        
+        main_title = f'Precio de {asset_val} vs. Método de Pago en {fiat_val} (Top {top_n_methods}){title_suffix}'
+        sub_title_text = f"Distribución de precios de {asset_val} para los {effective_pm_count} métodos de pago más usados, diferenciado por Compra/Venta."
+        fig.suptitle(main_title, fontsize=16, y=0.98)
+        ax.set_title(sub_title_text, fontsize=10, pad=10)
+        
+        ax.set_xlabel('Método de Pago', fontsize=12) 
+        ax.set_ylabel(f'Precio de {asset_val} en {fiat_val}', fontsize=12)
+        plt.xticks(rotation=45, ha='right', fontsize=10)
+        
+        ax.legend(title=order_type_col_internal.replace('_',' ').title(), fontsize=9)
+        ax.grid(axis='y', linestyle='--', alpha=0.7)
+        
+        ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: utils.format_large_number(x, precision=2)))
+        
+        fig.tight_layout(rect=[0, 0, 1, 0.94])
+        
+        file_name_pvpm = f'price_vs_payment_method_{str(asset_val).lower().replace(" ", "_")}_{str(fiat_val).lower().replace(" ", "_")}{file_identifier}.png'
+        file_path = os.path.join(out_dir, file_name_pvpm)
+        try: 
+            fig.savefig(file_path, dpi=300)
+            saved_paths.append(file_path)
+        except Exception as e: 
+            logger.error(f"Error al guardar el gráfico Precio vs Método de Pago {file_path}: {e}")
+        finally:
+            plt.close(fig)
+            
+    return saved_paths
+
+def plot_activity_heatmap(
+    df_all_statuses: pd.DataFrame, 
+    out_dir: str, 
+    title_suffix: str = "", 
+    file_identifier: str = "_general",
+    value_col: str = 'order_number', # Columna para la agregación (ej. 'order_number' para conteo, 'TotalPrice_num' para suma de volumen)
+    agg_func: str = 'count'       # Función de agregación ('count', 'sum')
+) -> str | None:
+    logger.info(f"Generando Heatmap de Actividad (valor: {value_col}, agg: {agg_func}){title_suffix}.")
+    
+    if df_all_statuses.empty:
+        logger.warning(f"DataFrame de entrada vacío para Heatmap de Actividad.{title_suffix}")
         return None
         
-    cols_for_pivot = [order_number_col_internal, 'day_of_week', hour_local_col_internal]
-    if df_plot[cols_for_pivot].isna().any().any():
-        rows_before_dropna = len(df_plot)
-        df_plot.dropna(subset=cols_for_pivot, inplace=True)
-        logger.debug(f"plot_activity_heatmap_v2_debug: Eliminadas {rows_before_dropna - len(df_plot)} filas con NaNs en cols_for_pivot. Filas restantes: {len(df_plot)}.")
+    # Columnas requeridas y de trabajo
+    match_time_local_col = 'Match_time_local'
+    hour_col = 'hour_of_day' # Nueva columna para la hora extraída
+    day_of_week_col = 'day_of_week' # Nueva columna para el día de la semana extraído
 
+    df_plot = df_all_statuses.copy()
+
+    # 1. Validar y preparar columna de tiempo
+    if match_time_local_col not in df_plot.columns:
+        logger.warning(f"Columna de tiempo '{match_time_local_col}' no encontrada para Heatmap.{title_suffix}")
+        return None
+    if not pd.api.types.is_datetime64_any_dtype(df_plot[match_time_local_col]):
+        try:
+            df_plot[match_time_local_col] = pd.to_datetime(df_plot[match_time_local_col], errors='coerce')
+        except Exception as e_time_conv:
+            logger.error(f"Error convirtiendo '{match_time_local_col}' a datetime: {e_time_conv}.{title_suffix}")
+            return None
+    df_plot.dropna(subset=[match_time_local_col], inplace=True) # Eliminar filas donde la conversión de tiempo falló
     if df_plot.empty:
-        logger.warning(f"plot_activity_heatmap_v2_debug: df_plot vacío después de dropna. No se generará heatmap.{title_suffix}")
+        logger.warning(f"DataFrame vacío después de procesar columna de tiempo para Heatmap.{title_suffix}")
         return None
 
-    logger.debug(f"plot_activity_heatmap_v2_debug: Intentando pivotar con index='day_of_week', columns='{hour_local_col_internal}', values='{order_number_col_internal}'.")
+    # 2. Validar columna de valor y función de agregación
+    actual_agg_func = agg_func.lower()
+    if actual_agg_func == 'count':
+        # Para 'count', value_col no se usa directamente en pivot_table si aggfunc es una función como 'size' o 'count'
+        # pero sí debe existir una columna (puede ser cualquiera si el aggfunc interno la ignora)
+        # Si value_col es 'order_number' (o similar para conteo), y no existe, no es crítico si aggfunc es 'size'
+        pass # No se necesita validación estricta de value_col para 'count' si pivot_table usa 'size'
+    elif actual_agg_func == 'sum':
+        if value_col not in df_plot.columns:
+            logger.warning(f"Columna de valor '{value_col}' para 'sum' no encontrada en Heatmap.{title_suffix}")
+            return None
+        if not pd.api.types.is_numeric_dtype(df_plot[value_col]):
+            try:
+                df_plot[value_col] = pd.to_numeric(df_plot[value_col], errors='coerce')
+                df_plot.dropna(subset=[value_col], inplace=True) # Eliminar filas donde la conversión de valor falló
+            except Exception as e_val_conv:
+                logger.error(f"Error convirtiendo columna de valor '{value_col}' a numérico: {e_val_conv}.{title_suffix}")
+                return None
+        if df_plot.empty:
+            logger.warning(f"DataFrame vacío después de procesar columna de valor '{value_col}' para Heatmap.{title_suffix}")
+            return None
+    else:
+        logger.error(f"Función de agregación '{agg_func}' no soportada para Heatmap. Usar 'count' o 'sum'.")
+        return None
+
+    # 3. Extraer hora y día de la semana
     try:
-        activity_matrix = df_plot.pivot_table(values=order_number_col_internal, index='day_of_week', columns=hour_local_col_internal, aggfunc='count', fill_value=0, observed=False)
-    except Exception as e_pivot:
-        logger.error(f"plot_activity_heatmap_v2_debug: Error durante pivot_table: {e_pivot}. Datos head:\n{df_plot.head()}")
+        df_plot[hour_col] = df_plot[match_time_local_col].dt.hour
+        df_plot[day_of_week_col] = df_plot[match_time_local_col].dt.day_name() # Nombres: 'Monday', 'Tuesday', etc.
+    except Exception as e_dt_extract:
+        logger.error(f"Error extrayendo hora/día de '{match_time_local_col}': {e_dt_extract}.{title_suffix}")
         return None
 
-    logger.debug(f"plot_activity_heatmap_v2_debug: activity_matrix creada con forma {activity_matrix.shape}. Columnas: {activity_matrix.columns.tolist()}")
+    # Ordenar días de la semana
+    days_ordered = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    df_plot[day_of_week_col] = pd.Categorical(df_plot[day_of_week_col], categories=days_ordered, ordered=True)
 
-    for hour in range(24):
-        if hour not in activity_matrix.columns: activity_matrix[hour] = 0
-    activity_matrix = activity_matrix.reindex(columns=sorted(activity_matrix.columns)); activity_matrix = activity_matrix.reindex(index=days_ordered, fill_value=0)
-    logger.debug(f"plot_activity_heatmap_v2_debug: activity_matrix reindexada. Forma final: {activity_matrix.shape}. Suma total: {activity_matrix.sum().sum()}")
+    # 4. Crear la matriz de actividad (pivot table)
+    try:
+        if actual_agg_func == 'count':
+            # Usar order_number o cualquier otra columna no nula solo para que pivot_table funcione con aggfunc='count'
+            # Si value_col es, por ejemplo, 'order_number' y existe, se puede usar. Si no, pivot_table con aggfunc='size' no necesita values.
+            # Para mantener la flexibilidad con value_col, si es count, y value_col existe, la usamos, sino usamos 'size'
+            if value_col in df_plot.columns:
+                 activity_matrix = df_plot.pivot_table(values=value_col, index=day_of_week_col, columns=hour_col, aggfunc='count', fill_value=0, observed=False)
+            else: # Si la columna de valor especificada para count no existe, simplemente contamos las filas
+                 activity_matrix = df_plot.pivot_table(index=day_of_week_col, columns=hour_col, aggfunc='size', fill_value=0, observed=False)
+        elif actual_agg_func == 'sum':
+            activity_matrix = df_plot.pivot_table(values=value_col, index=day_of_week_col, columns=hour_col, aggfunc='sum', fill_value=0, observed=False)
+    except Exception as e_pivot:
+        logger.error(f"Error durante pivot_table para Heatmap: {e_pivot}.{title_suffix}")
+        return None
 
-    if activity_matrix.empty or activity_matrix.sum().sum() == 0:
-        logger.warning(f"plot_activity_heatmap_v2_debug: activity_matrix vacía o todas las sumas son cero después de reindexar. No se generará heatmap.{title_suffix}")
+    # 5. Asegurar que todas las horas (0-23) y días estén presentes
+    for hour_val in range(24):
+        if hour_val not in activity_matrix.columns: activity_matrix[hour_val] = 0
+    activity_matrix = activity_matrix.reindex(columns=sorted(activity_matrix.columns))
+    activity_matrix = activity_matrix.reindex(index=days_ordered, fill_value=0) # Asegura el orden de los días y rellena faltantes
+
+    if activity_matrix.empty or (actual_agg_func == 'sum' and activity_matrix.sum().sum() == 0 and df_plot[value_col].sum() == 0) or (actual_agg_func == 'count' and activity_matrix.sum().sum() == 0 and len(df_plot) ==0 ):
+        logger.warning(f"Matriz de actividad vacía o con todos los valores cero para Heatmap.{title_suffix}")
         return None
     
-    # Asegurar que la matriz de actividad sea de tipo numérico antes de pasarla al heatmap
-    try:
-        activity_matrix = activity_matrix.astype(int)
-        logger.debug(f"plot_activity_heatmap_v2_debug: activity_matrix convertida a tipo int. Dtypes ahora: {activity_matrix.dtypes.unique()}")
-    except Exception as e_astype:
-        logger.error(f"plot_activity_heatmap_v2_debug: Error al convertir activity_matrix a int: {e_astype}. No se generará heatmap.{title_suffix}")
-        return None
-        
-    plt.figure(figsize=(18, 8)); sns.heatmap(activity_matrix, annot=True, fmt="d", cmap="YlGnBu", linewidths=.5, cbar_kws={'label': 'Cantidad de Operaciones'})
-    plt.title(f'Heatmap de Actividad de Operaciones por Hora y Día{title_suffix}'); plt.xlabel('Hora del Día (Local)'); plt.ylabel('Día de la Semana'); plt.xticks(rotation=0); plt.yticks(rotation=0); plt.tight_layout()
-    file_path = os.path.join(out_dir, f'activity_heatmap{file_identifier}.png')
+    # 6. Graficar el heatmap
+    fig, ax = plt.subplots(figsize=(18, 8))
+    
+    fmt_str = "d" if actual_agg_func == 'count' else ",.0f" # Formato para anotaciones (enteros para count, float para sum)
+    cbar_label_val = value_col.replace("_", " ").title() if value_col else "Conteo"
+    cbar_label = f'{agg_func.capitalize()} de {cbar_label_val}' if actual_agg_func == 'sum' else 'Cantidad de Operaciones'
+    
+    sns.heatmap(activity_matrix, annot=True, fmt=fmt_str, cmap="YlGnBu", linewidths=.5, 
+                cbar_kws={'label': cbar_label}, ax=ax)
+    
+    main_title = f'Heatmap de Actividad de Operaciones por Hora y Día ({agg_func.capitalize()} de {cbar_label_val}){title_suffix}'
+    sub_title_text = f"Muestra la concentración de actividad ({cbar_label.lower()}) basada en la hora local y el día de la semana."
+    fig.suptitle(main_title, fontsize=16, y=0.98)
+    ax.set_title(sub_title_text, fontsize=10, pad=10)
+    
+    ax.set_xlabel('Hora del Día (Local, 0-23)', fontsize=12)
+    ax.set_ylabel('Día de la Semana', fontsize=12)
+    plt.xticks(rotation=0, fontsize=10)
+    plt.yticks(rotation=0, fontsize=10)
+    
+    fig.tight_layout(rect=[0, 0, 1, 0.94])
+    
+    # Nombre de archivo más descriptivo
+    clean_value_col_name = utils.sanitize_filename_component(value_col)
+    clean_agg_func_name = utils.sanitize_filename_component(agg_func)
+    file_path = os.path.join(out_dir, f'activity_heatmap_{clean_value_col_name}_{clean_agg_func_name}{file_identifier}.png')
+    
     try: 
-        plt.savefig(file_path); plt.close(); 
-        logger.info(f"plot_activity_heatmap_v2_debug: Heatmap guardado en: {file_path}")
+        fig.savefig(file_path, dpi=300)
+        logger.info(f"Heatmap de Actividad guardado en: {file_path}")
         return file_path
-    except Exception as e: 
-        logger.error(f"plot_activity_heatmap_v2_debug: Error al guardar el heatmap {file_path}: {e}"); plt.close(); 
+    except Exception as e_save:
+        logger.error(f"Error al guardar el Heatmap de Actividad {file_path}: {e_save}")
         return None
+    finally:
+        plt.close(fig)
 
-def plot_fees_analysis(fees_stats_df: pd.DataFrame, out_dir: str, title_suffix: str = "", file_identifier: str = "_general") -> str | None:
+def plot_fees_analysis(
+    fees_stats_df: pd.DataFrame, 
+    out_dir: str, 
+    title_suffix: str = "", 
+    file_identifier: str = "_general",
+    value_col_name: str = 'total_fees_collected', # Columna que contiene el valor de las comisiones
+    index_level_name: str | None = None # Nombre del nivel del índice a usar para el eje X si es un MultiIndex
+) -> str | None:
     if fees_stats_df.empty:
         logger.info(f"No hay datos de comisiones para graficar{title_suffix}.")
         return None
 
-    plot_col = 'total_fees_collected' 
+    # Determinar la columna de valor y las etiquetas del eje X
+    plot_col = value_col_name
     if plot_col not in fees_stats_df.columns:
-        logger.warning(f"Columna '{plot_col}' no encontrada en fees_stats_df para graficar{title_suffix}.")
-        return None
+        # Si no es una columna, podría ser el nombre de la serie (si fees_stats_df es una Serie convertida a DataFrame)
+        if fees_stats_df.shape[1] == 1 and (plot_col == fees_stats_df.iloc[:, 0].name or plot_col == 'value'): # Caso común si era una Serie
+            df_plot = fees_stats_df.copy()
+            df_plot.rename(columns={df_plot.columns[0]: 'data_value'}, inplace=True)
+            plot_col = 'data_value'
+        else:
+            logger.warning(f"Columna de valor de comisión '{plot_col}' no encontrada en fees_stats_df para graficar{title_suffix}.")
+            return None
+    else:
+        # Seleccionar solo la columna de valor si es parte de un DataFrame más grande
+        df_plot = fees_stats_df[[plot_col]].copy()
         
-    df_plot = fees_stats_df[[plot_col]].copy() 
-    x_label_text = fees_stats_df.index.name if fees_stats_df.index.name is not None else "Tipo de Activo"
+    # Determinar etiquetas del eje X
+    if index_level_name and isinstance(fees_stats_df.index, pd.MultiIndex):
+        if index_level_name in fees_stats_df.index.names:
+            x_labels = fees_stats_df.index.get_level_values(index_level_name)
+            x_label_text = index_level_name.replace("_", " ").title()
+        else:
+            logger.warning(f"Nivel de índice '{index_level_name}' no encontrado. Usando el primer nivel como fallback.{title_suffix}")
+            x_labels = fees_stats_df.index.get_level_values(0)
+            x_label_text = fees_stats_df.index.names[0].replace("_", " ").title() if fees_stats_df.index.names[0] else "Categoría"
+    else:
+        x_labels = df_plot.index
+        x_label_text = df_plot.index.name if df_plot.index.name is not None else "Categoría"
+        x_label_text = x_label_text.replace("_", " ").title()
+
+    # Asegurar que la columna de ploteo sea numérica
+    if not pd.api.types.is_numeric_dtype(df_plot[plot_col]):
+        try:
+            df_plot[plot_col] = pd.to_numeric(df_plot[plot_col], errors='coerce')
+            df_plot.dropna(subset=[plot_col], inplace=True)
+        except Exception as e_conv_fees:
+            logger.error(f"Error convirtiendo columna de comisiones '{plot_col}' a numérica: {e_conv_fees}{title_suffix}.")
+            return None
 
     if df_plot.empty or df_plot[plot_col].sum() == 0:
         logger.info(f"No hay comisiones significativas (>0) en '{plot_col}' para graficar{title_suffix}.")
         return None
 
-    df_plot.sort_values(by=plot_col, ascending=False).plot(kind='bar', figsize=(12, 7), width=0.8, colormap='viridis', legend=None)
+    # Ordenar por valor para un mejor gráfico de barras
+    df_plot_sorted = df_plot.sort_values(by=plot_col, ascending=False)
+    x_labels_sorted = x_labels[df_plot_sorted.index] # Reordenar etiquetas del eje X según el sort de df_plot
+
+    fig, ax = plt.subplots(figsize=(12, 8))
     
-    plt.title(f'Total de Comisiones Recaudadas por {x_label_text}{title_suffix}')
-    plt.xlabel(x_label_text)
-    plt.ylabel('Monto Total de Comisión')
-    plt.xticks(rotation=45, ha='right')
-    plt.grid(axis='y', linestyle='--', alpha=0.7)
-    plt.tight_layout()
+    bars = ax.bar(x_labels_sorted.astype(str), df_plot_sorted[plot_col], width=0.8, color=sns.color_palette("viridis", len(df_plot_sorted)))
+
+    main_plot_title = f'Análisis de Comisiones por {x_label_text}{title_suffix}'
+    sub_title_text = f"Muestra el total de comisiones ('{plot_col.replace('_', ' ').title()}') recaudadas, agrupadas por {x_label_text.lower()}."
+    fig.suptitle(main_plot_title, fontsize=16, y=0.98)
+    ax.set_title(sub_title_text, fontsize=10, pad=10)
     
-    file_path = os.path.join(out_dir, f'fees_total_by_asset{file_identifier}.png')
+    ax.set_xlabel(x_label_text, fontsize=12)
+    ax.set_ylabel(f'Monto Total de Comisión ({plot_col.replace("_", " ").title()})', fontsize=12)
+    plt.xticks(rotation=45, ha='right', fontsize=10)
+    
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: utils.format_large_number(x)))
+    ax.grid(axis='y', linestyle='--', alpha=0.7)
+
+    # Añadir etiquetas de valor encima de las barras (opcional, puede ser ruidoso si hay muchas barras)
+    # for bar in bars:
+    #     yval = bar.get_height()
+    #     ax.text(bar.get_x() + bar.get_width()/2.0, yval + 0.01 * df_plot_sorted[plot_col].max(), utils.format_large_number(yval, precision=1), ha='center', va='bottom', fontsize=8)
+
+    fig.tight_layout(rect=[0, 0, 1, 0.94])
+    
+    file_path = os.path.join(out_dir, f'fees_analysis_by_{utils.sanitize_filename_component(x_label_text.lower())}_{utils.sanitize_filename_component(plot_col.lower())}{file_identifier}.png')
     try:
-        plt.savefig(file_path)
-        logger.info(f"Gráfico de análisis de comisiones por activo guardado en: {file_path}")
-        plt.close()
+        fig.savefig(file_path, dpi=300)
+        logger.info(f"Gráfico de análisis de comisiones ({x_label_text}) guardado en: {file_path}")
         return file_path
-    except Exception as e:
-        logger.error(f"Error al guardar el gráfico de comisiones {file_path}: {e}")
-        plt.close()
-        return None 
+    except Exception as e_save_fees:
+        logger.error(f"Error al guardar el gráfico de comisiones {file_path}: {e_save_fees}")
+        return None
+    finally:
+        plt.close(fig)
 
 # DONE: 2.1 Sankey Fiat -> Activo
 def plot_sankey_fiat_asset(df_data: pl.DataFrame, 
@@ -1025,50 +1567,122 @@ def plot_animated_scatter_price_volume(df_data: pl.DataFrame, out_dir: str, titl
         logger.error(f"Error al guardar Scatter animado {file_path}: {e}")
         return None
 
-def plot_volume_vs_price_scatter(df_completed: pd.DataFrame, out_dir: str, title_suffix: str = "", file_identifier: str = "_general") -> list[str]:
+def plot_volume_vs_price_scatter(
+    df_completed: pd.DataFrame, 
+    out_dir: str, 
+    title_suffix: str = "", 
+    file_identifier: str = "_general",
+    max_points_to_plot: int = 2000 # Limitar puntos para rendimiento
+) -> list[str]:
     saved_paths = []
-    if df_completed.empty: return saved_paths
-    quantity_num_col = 'Quantity_num'; price_num_col = 'Price_num'; total_price_num_col = 'TotalPrice_num' 
-    asset_type_col_internal = 'asset_type'; fiat_type_col_internal = 'fiat_type'; order_type_col_internal = 'order_type'
+    if df_completed.empty: 
+        logger.info(f"No hay datos completados para scatter Volumen vs Precio{title_suffix}.")
+        return saved_paths
+        
+    quantity_num_col = 'Quantity_num' 
+    price_num_col = 'Price_num'
+    total_price_num_col = 'TotalPrice_num' # Usado para el tamaño de los puntos
+    asset_type_col_internal = 'asset_type'
+    fiat_type_col_internal = 'fiat_type'
+    order_type_col_internal = 'order_type' # Usado para el color (hue)
+    
     required_cols = [quantity_num_col, price_num_col, total_price_num_col, asset_type_col_internal, fiat_type_col_internal, order_type_col_internal]
-    if not all(col in df_completed.columns for col in required_cols): return saved_paths
+    if not all(col in df_completed.columns for col in required_cols):
+        missing = [col for col in required_cols if col not in df_completed.columns]
+        logger.warning(f"Faltan columnas ({missing}) para scatter Volumen vs Precio{title_suffix}.")
+        return saved_paths
 
     df_plot_base = df_completed.copy()
 
+    # Convertir columnas relevantes a numérico y eliminar NaNs
+    for col_to_convert in [quantity_num_col, price_num_col, total_price_num_col]:
+        if col_to_convert in df_plot_base.columns:
+            df_plot_base[col_to_convert] = pd.to_numeric(df_plot_base[col_to_convert], errors='coerce')
+    df_plot_base.dropna(subset=[quantity_num_col, price_num_col, total_price_num_col], inplace=True)
+
+    if df_plot_base.empty: 
+        logger.info(f"Datos vacíos después de conversión a numérico/NaN drop para scatter Volumen vs Precio{title_suffix}.")
+        return saved_paths
+
+    # Iterar por cada par Asset/Fiat
     for (asset_val, fiat_val), group_data_original in df_plot_base.groupby([asset_type_col_internal, fiat_type_col_internal]):
-        if group_data_original.empty or group_data_original[[quantity_num_col, price_num_col]].isna().all().all(): continue
+        if group_data_original.empty:
+            logger.info(f"Datos vacíos para el par {asset_val}/{fiat_val} en scatter Volumen vs Precio{title_suffix}.")
+            continue
         
-        group_data = group_data_original.copy() 
+        group_data_to_plot = group_data_original.copy() 
 
-        for col_to_convert in [quantity_num_col, price_num_col, total_price_num_col]:
-            if col_to_convert in group_data.columns:
-                group_data[col_to_convert] = pd.to_numeric(group_data[col_to_convert], errors='coerce')
+        # Limitar el número de puntos si excede el máximo
+        if len(group_data_to_plot) > max_points_to_plot:
+            logger.info(f"Tomando muestra de {max_points_to_plot} puntos de {len(group_data_to_plot)} para scatter {asset_val}/{fiat_val}{title_suffix}.")
+            group_data_to_plot = group_data_to_plot.sample(n=max_points_to_plot, random_state=42) # random_state para reproducibilidad
 
-        size_data = group_data[total_price_num_col]; 
-        sizes_for_plot = pd.Series([30] * len(group_data), index=group_data.index)
-        if not size_data.isna().all() and not (size_data == 0).all():
-            min_val_sd = size_data.min(); max_val_sd = size_data.max()
+        # Normalizar TotalPrice_num para el tamaño de los puntos, asegurando que sea positivo
+        size_data = group_data_to_plot[total_price_num_col]
+        sizes_for_plot = pd.Series([30] * len(group_data_to_plot), index=group_data_to_plot.index) # Default size
+        if not size_data.empty and size_data.min() >= 0: # Asegurar que todos los valores sean no negativos
+            min_val_sd = size_data.min()
+            max_val_sd = size_data.max()
             if pd.notna(min_val_sd) and pd.notna(max_val_sd) and max_val_sd > min_val_sd:
-                 sizes_norm = (size_data.fillna(0) - min_val_sd) / (max_val_sd - min_val_sd); sizes_for_plot = sizes_norm * 490 + 10
-            elif pd.notna(min_val_sd): sizes_for_plot = pd.Series([50] * len(group_data), index=group_data.index)
+                 sizes_norm = (size_data - min_val_sd) / (max_val_sd - min_val_sd) 
+                 sizes_for_plot = sizes_norm * 480 + 20 # Rango de tamaño de 20 a 500
+            elif pd.notna(min_val_sd) and min_val_sd == max_val_sd: # Todos los valores son iguales (y no NaN)
+                 sizes_for_plot = pd.Series([100] * len(group_data_to_plot), index=group_data_to_plot.index)
         
-        sizes_for_plot = sizes_for_plot.fillna(30).clip(lower=10, upper=500).astype('float64') 
+        sizes_for_plot = sizes_for_plot.fillna(30).clip(lower=10, upper=500).astype('float64')
 
-        plt.figure(figsize=(14, 8))
-        scatter_plot = sns.scatterplot(data=group_data, x=quantity_num_col, y=price_num_col, hue=order_type_col_internal, size=sizes_for_plot, sizes=(20, 500), alpha=0.7, palette="viridis", legend="auto")
-        plt.title(f"""Volumen vs. Precio para {asset_val}/{fiat_val}{title_suffix}\\n(Tamaño del punto proporcional al Monto Total Fiat)""")
-        plt.xlabel(f'Volumen del Activo ({asset_val})'); plt.ylabel(f'Precio en {fiat_val}')
+
+        fig, ax = plt.subplots(figsize=(14, 9)) # Usar fig, ax
+        
+        scatter_plot = sns.scatterplot(
+            data=group_data_to_plot, 
+            x=quantity_num_col, 
+            y=price_num_col, 
+            hue=order_type_col_internal, 
+            size=sizes_for_plot, 
+            sizes=(20, 500), 
+            alpha=0.6, 
+            palette="viridis", 
+            legend="auto",
+            ax=ax # Especificar el ax
+        )
+        
+        main_title = f'Volumen de Transacción vs. Precio para {asset_val}/{fiat_val}{title_suffix}'
+        sub_title_text = f"Cada punto es una transacción. Color indica Compra/Venta. Tamaño del punto proporcional al Monto Total en {fiat_val}."
+        fig.suptitle(main_title, fontsize=16, y=0.99) # Usar fig.suptitle
+        ax.set_title(sub_title_text, fontsize=10, pad=10)
+        
+        ax.set_xlabel(f'Volumen del Activo ({asset_val})', fontsize=12)
+        ax.set_ylabel(f'Precio Unitario en {fiat_val}', fontsize=12) # Corregido aquí
+        
         handles, labels = scatter_plot.get_legend_handles_labels()
+        legend_params = {} # Inicializar legend_params
         if handles:
-            legend_params = {'title': f'{order_type_col_internal} / Monto'}
-            if len(handles) > 5: legend_params['loc'] = 'upper left'; legend_params['bbox_to_anchor'] = (1.05, 1)
-            else: legend_params['loc'] = 'best'
-            scatter_plot.legend(**legend_params)
-        plt.grid(True, linestyle='--', alpha=0.7)
-        file_path = os.path.join(out_dir, f'volume_vs_price_scatter_{str(asset_val).lower().replace(" ", "_")}_{str(fiat_val).lower().replace(" ", "_")}{file_identifier}.png')
+            legend_params = {'title': f'{order_type_col_internal.replace("_", " ").title()} / Monto Total'}
+            if len(handles) > 6: 
+                legend_params['loc'] = 'center left'
+                legend_params['bbox_to_anchor'] = (1.01, 0.5) 
+            else:
+                legend_params['loc'] = 'best'
+            ax.legend(**legend_params, fontsize=9) # Usar ax.legend
+
+        ax.grid(True, linestyle='--', alpha=0.7)
+        
+        ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: utils.format_large_number(x, precision=2)))
+        ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: utils.format_large_number(x, precision=2)))
+        
+        # Ajustar el layout para acomodar la leyenda si está fuera
+        fig.tight_layout(rect=[0, 0, 0.88 if legend_params.get('bbox_to_anchor') else 1, 0.95])
+        
+        file_name_scatter = f'volume_vs_price_scatter_{str(asset_val).lower().replace(" ", "_")}_{str(fiat_val).lower().replace(" ", "_")}{file_identifier}.png'
+        file_path = os.path.join(out_dir, file_name_scatter)
         try:
-            plt.savefig(file_path, bbox_inches='tight'); saved_paths.append(file_path); plt.close()
-        except Exception as e: logger.error(f"Error al guardar el gráfico {file_path}: {e}"); plt.close()
+            fig.savefig(file_path, dpi=300) # Usar fig.savefig
+        except Exception as e: 
+            logger.error(f"Error al guardar el gráfico scatter {file_path}: {e}")
+        finally:
+            plt.close(fig) # Usar plt.close(fig)
+            
     return saved_paths
 
 # --- Nueva función para Boxplots por Método de Pago ---
@@ -1764,3 +2378,137 @@ def plot_simplified_market_depth(
     return saved_paths
 
 # --- Fin de la nueva función ---
+
+def plot_daily_average(daily_avg_fiat: pd.DataFrame, out_dir: str, title_suffix: str = "", file_identifier: str = "_general") -> list[str]:
+    saved_paths = []
+    if daily_avg_fiat.empty:
+        logger.info(f"No hay datos para el gráfico de promedio diario{title_suffix}.")
+        return saved_paths
+
+    # Columnas internas esperadas
+    day_of_week_col_internal = 'DayOfWeek' # 0-6 (Lunes-Domingo) o nombres
+    fiat_type_col_internal = 'fiat_type'
+    
+    # Usar una paleta de colores consistente
+    palette = sns.color_palette("viridis", n_colors=7) # Paleta para días de la semana
+
+    # Determinar cómo acceder a fiat_type (columna o nivel de índice)
+    unique_fiats = [None]
+    fiat_column_for_grouping = None
+    if fiat_type_col_internal in daily_avg_fiat.columns:
+        fiat_column_for_grouping = fiat_type_col_internal
+        if daily_avg_fiat[fiat_column_for_grouping].nunique() > 0:
+            unique_fiats = daily_avg_fiat[fiat_column_for_grouping].unique()
+    elif isinstance(daily_avg_fiat.index, pd.MultiIndex) and fiat_type_col_internal in daily_avg_fiat.index.names:
+        unique_fiats = daily_avg_fiat.index.get_level_values(fiat_type_col_internal).unique()
+    elif daily_avg_fiat.index.name == fiat_type_col_internal:
+        unique_fiats = daily_avg_fiat.index.unique()
+
+    # Orden de los días de la semana para el gráfico
+    days_order_es = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+    days_order_num = list(range(7)) # 0 para Lunes, ..., 6 para Domingo
+
+    for i, current_fiat in enumerate(unique_fiats):
+        df_plot_full_orig = daily_avg_fiat.copy()
+        plot_title_fiat_part = ""
+        current_fiat_label_for_file = "all_fiats"
+        current_fiat_label_for_title = "General"
+
+        if current_fiat is not None:
+            current_fiat_label_for_file = str(current_fiat).lower()
+            current_fiat_label_for_title = str(current_fiat)
+            plot_title_fiat_part = f" para {current_fiat_label_for_title}"
+            if fiat_column_for_grouping:
+                df_plot_full_orig = daily_avg_fiat[daily_avg_fiat[fiat_column_for_grouping] == current_fiat]
+            elif isinstance(daily_avg_fiat.index, pd.MultiIndex) and fiat_type_col_internal in daily_avg_fiat.index.names:
+                df_plot_full_orig = daily_avg_fiat[daily_avg_fiat.index.get_level_values(fiat_type_col_internal) == current_fiat]
+            elif daily_avg_fiat.index.name == fiat_type_col_internal:
+                df_plot_full_orig = daily_avg_fiat[daily_avg_fiat.index == current_fiat]
+        
+        if df_plot_full_orig.empty:
+            logger.info(f"Datos vacíos para Fiat: {current_fiat_label_for_title} en plot_daily_average. Omitiendo.")
+            continue
+
+        # Asegurar que DayOfWeek sea una columna para facilitar el ploteo
+        if isinstance(df_plot_full_orig.index, pd.MultiIndex) and day_of_week_col_internal in df_plot_full_orig.index.names:
+            df_plot_full = df_plot_full_orig.reset_index()
+        elif df_plot_full_orig.index.name == day_of_week_col_internal:
+            df_plot_full = df_plot_full_orig.reset_index()
+        else:
+            df_plot_full = df_plot_full_orig
+
+        if day_of_week_col_internal not in df_plot_full.columns:
+            logger.warning(f"La columna '{day_of_week_col_internal}' no fue encontrada en los datos para plot_daily_average para {current_fiat_label_for_title}{title_suffix}.")
+            continue
+
+        # Convertir DayOfWeek a categórico con el orden correcto
+        # Asumimos que DayOfWeek puede ser numérico (0-6) o string ("Lunes", "Martes", etc.)
+        if pd.api.types.is_numeric_dtype(df_plot_full[day_of_week_col_internal]):
+            # Mapear números a nombres para etiquetas y orden
+            day_map_num_to_name = dict(zip(days_order_num, days_order_es))
+            df_plot_full['DayName'] = df_plot_full[day_of_week_col_internal].map(day_map_num_to_name)
+            plot_x_col = 'DayName'
+            category_order = days_order_es
+        else:
+            # Si ya son nombres, usar directamente, pero asegurar el orden
+            plot_x_col = day_of_week_col_internal
+            category_order = pd.Categorical(df_plot_full[day_of_week_col_internal], categories=days_order_es, ordered=True)
+            df_plot_full[plot_x_col] = category_order # Re-asignar para asegurar el tipo categórico ordenado
+        
+        df_plot_full = df_plot_full.sort_values(by=plot_x_col, key=lambda x: x.map({day: i for i, day in enumerate(days_order_es)}) if pd.api.types.is_string_dtype(x) else x) 
+
+        exclude_cols_from_values = {day_of_week_col_internal, fiat_type_col_internal, 'DayName'} 
+        potential_value_cols = [col for col in df_plot_full.columns if col not in exclude_cols_from_values and pd.api.types.is_numeric_dtype(df_plot_full[col])]
+
+        if not potential_value_cols:
+            logger.warning(f"No hay columnas de valor numéricas para graficar en plot_daily_average para {current_fiat_label_for_title}{title_suffix}. Columnas: {df_plot_full.columns}")
+            continue
+
+        plt.figure(figsize=(15, 9))
+        ax = plt.gca()
+
+        # Usaremos barplot para esto, agrupando si hay múltiples value_cols (ej. BUY, SELL)
+        num_value_cols = len(potential_value_cols)
+        bar_width = 0.8 / num_value_cols if num_value_cols > 0 else 0.8
+        x_indices = np.arange(len(df_plot_full[plot_x_col].unique())) # Un índice numérico para las posiciones de las barras
+
+        for idx, value_col in enumerate(potential_value_cols):
+            series_to_plot = df_plot_full.groupby(plot_x_col, observed=False)[value_col].mean().reindex(category_order, fill_value=0)
+            bar_positions = x_indices - (0.8 - bar_width) / 2 + idx * bar_width
+            plt.bar(bar_positions, series_to_plot.values, width=bar_width, label=str(value_col), color=palette[idx % len(palette)], alpha=0.8)
+
+            # Línea de media general para esta columna de valor
+            overall_mean = df_plot_full[value_col].mean()
+            plt.axhline(overall_mean, color=palette[idx % len(palette)], linestyle='--', alpha=0.7, label=f'{value_col} (Media Gral: {utils.format_large_number(overall_mean)})')
+
+        main_chart_title = f'Promedio de Volumen P2P por Día de la Semana{plot_title_fiat_part}{title_suffix}'
+        fig_text_explanation_daily = (
+            f"Este gráfico muestra el volumen promedio transaccionado para cada día de la semana en {current_fiat_label_for_title}. "
+            f"Las barras de colores representan diferentes tipos de operación (ej. Compra, Venta).\\n"
+            f"Las líneas discontinuas indican el promedio general de volumen para cada tipo de operación a lo largo de todos los días."
+        )
+        plt.suptitle(main_chart_title, fontsize=16, y=1.03)
+        ax.set_title(fig_text_explanation_daily, fontsize=10, pad=20)
+        
+        plt.xlabel('Día de la Semana', fontsize=12)
+        plt.ylabel(f'Volumen Promedio Transaccionado ({current_fiat_label_for_title})', fontsize=12)
+        plt.xticks(ticks=x_indices, labels=category_order, rotation=45, ha="right")
+        
+        ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: utils.format_large_number(x) if x >= 1000 else f"{x:,.0f}"))
+        
+        plt.legend(title='Tipo de Operación / Promedio Gral.', fontsize=9)
+        plt.grid(True, linestyle='--', alpha=0.7, axis='y') # Grid solo en el eje Y para barplot
+        plt.tight_layout(rect=[0, 0, 1, 0.95])
+        
+        fiat_file_part = f"_{current_fiat_label_for_file.lower()}_"
+        file_path = os.path.join(out_dir, f'daily_average_volume{fiat_file_part}{file_identifier}.png')
+        try:
+            plt.savefig(file_path, dpi=300)
+            logger.info(f"Gráfico de volumen promedio diario ({current_fiat_label_for_title}) guardado en: {file_path}")
+            saved_paths.append(file_path)
+        except Exception as e:
+            logger.error(f"Error al guardar el gráfico {file_path}: {e}")
+        finally:
+            plt.close()
+
+    return saved_paths
