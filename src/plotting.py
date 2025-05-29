@@ -3,6 +3,7 @@ import logging
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from matplotlib.figure import Figure
 
 logger = logging.getLogger(__name__)
 sns.set_theme(style="whitegrid")
