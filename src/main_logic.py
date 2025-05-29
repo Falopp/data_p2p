@@ -2,6 +2,10 @@ import argparse
 import polars as pl
 import logging
 
+# DONE: Mover imports a top-level
+from .analyzer import analyze
+from .reporter import save_outputs
+
 logger = logging.getLogger(__name__)
 
 def initialize_analysis(cli_args_list: list[str] | None = None) -> tuple[argparse.Namespace, str, str]:
@@ -17,6 +21,9 @@ def initialize_analysis(cli_args_list: list[str] | None = None) -> tuple[argpars
     parser.add_argument("--status_filter", nargs='+', default=None, help="Filtrar por uno o más Estados de orden.")
     parser.add_argument("--payment_method_filter", nargs='+', default=None, help="Filtrar por uno o más Métodos de Pago.")
     parser.add_argument("--no_annual_breakdown",action="store_true",help="Si se establece, no se generan resultados desglosados por año.")
+    parser.add_argument("--detect-outliers", action="store_true", help="Activar detección de outliers con IsolationForest.")
+    parser.add_argument("--event-date", type=str, default=None, help="Fecha del evento (YYYY-MM-DD) para análisis comparativo Antes/Después (24h).")
+    parser.add_argument("--interactive", action="store_true", help="Activar modo interactivo (ej. gráficos Plotly incrustados o enlazados).")
     
     args = parser.parse_args(cli_args_list)
 
@@ -60,8 +67,9 @@ def initialize_analysis(cli_args_list: list[str] | None = None) -> tuple[argpars
 
 
 def run_analysis_pipeline(df_master_processed: pl.DataFrame, args: argparse.Namespace, config: dict, col_map: dict, sell_config: dict, clean_filename_suffix_cli: str, analysis_title_suffix_cli: str):
-    from analyzer import analyze
-    from reporter import save_outputs
+    # Imports ya están en top-level
+    # from .analyzer import analyze 
+    # from .reporter import save_outputs
 
     status_col_internal = 'status' # Asumir que este es el nombre INTERNO después del mapeo
     status_categories = ["todas", "completadas", "canceladas"]
@@ -101,7 +109,7 @@ def run_analysis_pipeline(df_master_processed: pl.DataFrame, args: argparse.Name
 
             logger.info(f"Analizando {df_subset_for_status.height} filas para {period_label.upper()} - {status_category.upper()} con Polars")
             # La función analyze ya está definida en src.analyzer, la importamos arriba.
-            processed_df_for_save, current_metrics = analyze(df_subset_for_status.clone(), col_map, sell_config)
+            processed_df_for_save, current_metrics = analyze(df_subset_for_status.clone(), col_map, sell_config, cli_args=vars(args))
             
             # La función save_outputs ya está definida en src.reporter, la importamos arriba.
             save_outputs(

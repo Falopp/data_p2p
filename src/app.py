@@ -14,12 +14,13 @@ import logging
 import datetime
 from jinja2 import Environment, FileSystemLoader
 import pandas as pd
+import sys
 
-import plotting
-from config_loader import load_config
-from analyzer import analyze
-from reporter import save_outputs
-from main_logic import initialize_analysis, run_analysis_pipeline
+from .config_loader import load_config, setup_logging
+from .main_logic import initialize_analysis, run_analysis_pipeline
+from .utils import parse_amount # Asegurarse que utils.py está en src/
+# from .analyzer import analyze # analyze se llama desde main_logic
+from . import plotting # plotting.py está en src/
 
 # --- Configuración de Logging Básico ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -88,15 +89,17 @@ def main():
         print("El DataFrame está vacío después de aplicar los filtros CLI. No se generarán resultados.")
         exit(0)
 
-    logger.info("\n=== Pre-procesando DataFrame base con Polars (después de filtros CLI) ===")
-    df_master_processed, _ = analyze(df_cli_filtered.clone(), col_map, sell_config) 
+    # logger.info("\n=== Pre-procesando DataFrame base con Polars (después de filtros CLI) ===")
+    # df_master_processed, _ = analyze(df_cli_filtered.clone(), col_map, sell_config, cli_args=vars(args)) # ELIMINAR ESTA LLAMADA
+    # La variable df_master_processed será ahora df_cli_filtered directamente
 
-    if df_master_processed.is_empty():
-        print("DataFrame vacío después del pre-procesamiento inicial (post-CLI filters). No se generarán resultados.")
-        exit(0)
+    # if df_cli_filtered.is_empty(): # Ya se comprobó antes
+    #     print("DataFrame vacío después del pre-procesamiento inicial (post-CLI filters). No se generarán resultados.")
+    #     exit(0)
 
+    # Llamar a run_analysis_pipeline con el df_cli_filtered
     run_analysis_pipeline(
-        df_master_processed=df_master_processed,
+        df_master_processed=df_cli_filtered, # Pasar el df filtrado por CLI
         args=args,
         config=config,
         col_map=col_map,

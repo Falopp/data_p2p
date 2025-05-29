@@ -1,8 +1,50 @@
 # Proyecto de Análisis de Datos P2P (Versión Profesional) 🚀
 
-Este proyecto proporciona una solución integral para el análisis avanzado de datos de operaciones Peer-to-Peer (P2P), comúnmente exportados desde plataformas de intercambio de criptomonedas como Binance. Utilizando el poder y la eficiencia de la biblioteca **Polars** para el backend de procesamiento de datos, el script principal ingiere un archivo CSV, realiza una limpieza y transformación exhaustiva de los datos, calcula un amplio espectro de métricas financieras y de actividad, genera múltiples tablas de resumen detalladas, crea visualizaciones informativas con `matplotlib` y `seaborn`, y consolida toda esta información en reportes HTML interactivos.
+Este proyecto proporciona una solución integral para el análisis avanzado de datos de operaciones Peer-to-Peer (P2P), comúnmente exportados desde plataformas de intercambio de criptomonedas como Binance. Utilizando el poder y la eficiencia de la biblioteca **Polars** para el backend de procesamiento de datos, el script principal ingiere un archivo CSV, realiza una limpieza y transformación exhaustiva de los datos, calcula un amplio espectro de métricas financieras y de actividad, genera múltiples tablas de resumen detalladas, crea visualizaciones informativas con `matplotlib`, `seaborn` y `plotly`, y consolida toda esta información en reportes HTML interactivos.
 
 Una característica distintiva es su capacidad para organizar los resultados de forma meticulosa: no solo para el conjunto de datos completo, sino también desglosado por cada año presente en los datos. Además, dentro de cada uno de estos periodos (total y anual), el análisis se segmenta aún más según el estado de la orden —`Completadas`, `Canceladas`, y `Todas`— permitiendo una granularidad excepcional y una comprensión profunda de las dinámicas de las operaciones P2P.
+
+## ✨ Funcionalidades Implementadas y Mejoras Recientes
+
+Este proyecto ha sido recientemente actualizado con una serie de mejoras significativas y nuevas funcionalidades, siguiendo un roadmap detallado. A continuación, se presenta un resumen de los avances:
+
+**Métricas Avanzadas (en `src/analyzer.py`):**
+*   **VWAP Diario:** Calculado y almacenado.
+*   **High / Low Intradía:** Implementado.
+*   **Time-Between-Trades (TBT):** Implementado con percentiles.
+*   **Rolling P&L + Sharpe (7 días):** Implementado utilizando un nuevo módulo `src/finance_utils.py`.
+*   **Estacionalidad (FFT) en Volumen:** Implementado usando `numpy.fft`.
+*   **Detección de Outliers con IsolationForest:** Implementado con flag CLI `--detect-outliers` y `scikit-learn`.
+*   **Índice de Liquidez Efectiva:** Calculado (`mean_qty/median_qty`).
+
+**Visualizaciones (en `src/plotting.py` y `src/reporter.py`):**
+*   **Sankey Fiat → Activo:** Implementado con Plotly.
+*   **Heatmap Hora × Día:** Implementado con Seaborn (para conteo y volumen).
+*   **Gráfico de Violín Precio vs. Método de pago:** Implementado con Seaborn.
+*   **Gráfico de Línea YoY (Año sobre Año) alineado por mes:** Implementado con Matplotlib/Seaborn.
+*   **Scatter Plot Animado Precio/Volumen:** Implementado con Plotly Express.
+
+**Detección de Patrones y Alertas:**
+*   **Identificación de "Whale Trades"**: Operaciones que superan la media más 3 desviaciones estándar del volumen (`TotalPrice_num`), añadidas al reporte HTML.
+*   **Análisis Comparativo Antes/Después de Evento**: Implementado con el flag CLI `--event_date` para comparar métricas clave 24 horas antes y después de una fecha específica. Los resultados se incluyen en el reporte HTML.
+*   *(Métrica de eficiencia temporal marcada como pendiente por falta de claridad/datos en `update.md`)*.
+
+**Reporting Interactivo y Exportación:**
+*   **Modo Interactivo (`--interactive`):** Permite la incrustación de gráficos Plotly (y potencialmente Bokeh) en los reportes HTML.
+*   **Tablas HTML Interactivas con DataTables.js:** Se añade la clase `datatable-ready` a las tablas en los reportes HTML para su posterior integración con la librería DataTables.js.
+*   **Exportación a XLSX Multi-hoja:** Implementada para exportar el DataFrame principal y las diversas métricas calculadas a diferentes hojas dentro de un único archivo Excel.
+
+**Fase de Estabilización y Corrección de Errores:**
+Posterior a la implementación de estas funcionalidades, se llevó a cabo una exhaustiva fase de pruebas y depuración. Durante este proceso, se identificaron y corrigieron numerosos problemas, incluyendo:
+*   Errores de importación de módulos (`ImportError`, `ModuleNotFoundError`).
+*   Errores de lógica y uso de APIs de Polars y Pandas (`AttributeError`, `ComputeError`, `ShapeError`, `ValueError`).
+*   Errores y advertencias en la generación de gráficos y reportes, incluyendo:
+    *   Problemas de tipo de datos en heatmaps.
+    *   Manejo de zonas horarias en la exportación a XLSX.
+    *   Advertencias de Matplotlib sobre unidades categóricas en los ejes de los gráficos.
+*   Se añadió una función `setup_logging` básica a `src/config_loader.py`.
+
+Como resultado de estas mejoras y correcciones, el script principal es ahora más robusto, genera un conjunto más rico de análisis y reportes, y produce salidas más limpias y precisas.
 
 ## 📖 Tabla de Contenidos
 1.  [🎯 Visión General del Proyecto](#-visión-general-del-proyecto)
@@ -350,7 +392,7 @@ A continuación se detallan las principales métricas generadas:
     *   **Cálculo:** Conteo de ocurrencias de cada valor único en la columna `status`.
 
 7.  **`side_counts`** (Series o DataFrame de una columna):
-    *   **Cálculo:** Conteo de ocurrencias de cada valor único en la columna `order_type` (normalmente "BUY" y "SELL").
+    *   **Cálculo:** Conteo de ocurrencias de cada valor único en la columna `order_type` (normalmente BUY/SELL).
 
 8.  **`hourly_counts`** (DataFrame):
     *   **Cálculo:** Conteo de ocurrencias de cada valor en la columna `hour_local`.
@@ -466,7 +508,6 @@ Los filtros CLI aplicados se reflejan en los nombres de los archivos de salida (
     python src/app.py --csv data/p2p.csv --status_filter Completed Cancelled --no_annual_breakdown
     ```
     *(Recuerda la nota sobre `--status_filter` y la segmentación interna).*
-
 
 ## 👨‍💻 Guía para Desarrolladores
 

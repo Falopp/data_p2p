@@ -34,4 +34,17 @@ DEFAULT_CONFIG = {
 def load_config() -> dict:
     """Devuelve la configuración por defecto."""
     logger.info("Usando configuración por defecto del script.")
-    return DEFAULT_CONFIG.copy() 
+    return DEFAULT_CONFIG.copy()
+
+def setup_logging(config: dict | None = None):
+    """Configura el logging básico."""
+    # Por ahora, ignora el config y usa una configuración simple.
+    # En el futuro, podría usar config para niveles de log, formato, archivo de log, etc.
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    logging.getLogger("matplotlib").setLevel(logging.WARNING) # Silenciar logs de matplotlib
+    logging.getLogger("PIL").setLevel(logging.WARNING)      # Silenciar logs de Pillow
+    logger.info("Logging configurado.") 

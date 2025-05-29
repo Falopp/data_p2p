@@ -7,7 +7,7 @@ from jinja2 import Environment, FileSystemLoader
 import argparse 
 import pathlib
 
-import plotting 
+from . import plotting 
 
 logger = logging.getLogger(__name__)
 
@@ -124,15 +124,19 @@ def save_outputs(
     def add_figure_to_html_list(fig_path: str | list[str] | None, title_prefix: str):
         if fig_path: # Solo procesar si fig_path no es None
             if isinstance(fig_path, str) and os.path.exists(fig_path):
-                relative_fig_path = os.path.join('..', 'figures', os.path.basename(fig_path)).replace('\\', '/')
+                file_name = os.path.basename(fig_path)
+                relative_fig_path = os.path.join('..', 'figures', file_name).replace('\\', '/')
                 descriptive_title = title_prefix 
-                figures_for_html.append({'title': descriptive_title, 'path': relative_fig_path})
+                # DONE: 4.1 Distinguir tipo de archivo para modo interactivo
+                file_type = 'html' if file_name.lower().endswith('.html') else 'image'
+                figures_for_html.append({'title': descriptive_title, 'path': relative_fig_path, 'type': file_type})
             elif isinstance(fig_path, list):
                 for idx, single_path in enumerate(fig_path):
                     if isinstance(single_path, str) and os.path.exists(single_path):
-                        relative_single_path = os.path.join('..', 'figures', os.path.basename(single_path)).replace('\\', '/')
-                        base_name = os.path.basename(single_path).replace(file_name_suffix_from_cli, '').replace('.png', '')
-                        prefixes_to_remove = ['price_distribution', 'volume_vs_price_scatter', 'price_over_time', 'volume_over_time_asset_quantity', 'volume_over_time_fiat_value', 'price_vs_payment_method', 'monthly_fiat_volume', 'hourly_counts','buy_sell_distribution', 'order_status_distribution', 'activity_heatmap','fees_total_by_asset']
+                        single_file_name = os.path.basename(single_path)
+                        relative_single_path = os.path.join('..', 'figures', single_file_name).replace('\\', '/')
+                        base_name = single_file_name.replace(file_name_suffix_from_cli, '').replace('.png', '').replace('.html', '')
+                        prefixes_to_remove = ['price_distribution', 'volume_vs_price_scatter', 'price_over_time', 'volume_over_time_asset_quantity', 'volume_over_time_fiat_value', 'price_vs_payment_method', 'monthly_fiat_volume', 'hourly_counts','buy_sell_distribution', 'order_status_distribution', 'activity_heatmap','fees_total_by_asset', 'sankey_fiat_to_asset', 'scatter_animated_price_qty']
                         cleaned_name_part = base_name
                         for pfx in prefixes_to_remove:
                             if cleaned_name_part.startswith(pfx + '_'): cleaned_name_part = cleaned_name_part[len(pfx)+1:]
@@ -140,7 +144,8 @@ def save_outputs(
                         name_parts = [p.capitalize() for p in cleaned_name_part.split('_') if p and p not in ['general']]
                         specific_addon = ' '.join(name_parts) if name_parts else f"Parte {idx + 1}"
                         specific_title = f"{title_prefix} - {specific_addon}"
-                        figures_for_html.append({'title': specific_title, 'path': relative_single_path})
+                        single_file_type = 'html' if single_file_name.lower().endswith('.html') else 'image'
+                        figures_for_html.append({'title': specific_title, 'path': relative_single_path, 'type': single_file_type})
     
     logger.info(f"Generando y adaptando datos para gráficos de '{output_label} - {status_subdir}'...")
 
@@ -233,6 +238,156 @@ def save_outputs(
             add_figure_to_html_list(path_pie, pie_title)
         else:
             logger.info(f"No hay datos de '{pie_metric_key}' para graficar en '{output_label} - {status_subdir}'.")
+
+    # DONE: 2.1 Llamar a plot_sankey_fiat_asset
+    logger.info(f"Intentando generar gráfico Sankey para '{output_label} - {status_subdir}'...")
+    path_sankey = None
+    # df_to_plot_from es el DataFrame de Polars original para el período/estado actual
+    if df_to_plot_from is not None and not df_to_plot_from.is_empty():
+        try:
+            path_sankey = plotting.plot_sankey_fiat_asset(
+                df_to_plot_from, 
+                figures_dir, 
+                title_suffix=final_title_suffix, 
+                file_identifier=file_name_suffix_from_cli
+            )
+        except Exception as e_sankey_plot:
+            logger.error(f"Error al generar gráfico Sankey para '{output_label} - {status_subdir}': {e_sankey_plot}.")
+        add_figure_to_html_list(path_sankey, "Flujo Fiat a Activo (Sankey)")
+    else:
+        logger.info(f"DataFrame principal (df_to_plot_from) vacío para '{output_label} - {status_subdir}', no se genera Sankey.")
+
+    # DONE: 2.2 Llamar a plot_heatmap_hour_day
+    logger.info(f"Intentando generar Heatmaps Hora x Día para '{output_label} - {status_subdir}'...")
+    path_heatmap_count = None
+    path_heatmap_volume = None
+    if df_to_plot_from is not None and not df_to_plot_from.is_empty():
+        # Para el heatmap de conteo:
+        try:
+            # Intentar usar 'order_number' si existe, ya que es un buen candidato para contar operaciones únicas o filas.
+            # La función de ploteo plot_heatmap_hour_day usará esta columna con agg_func='count'.
+            # Si 'order_number' no está, la función de ploteo podría tener un fallback o podríamos pasar otra columna.
+            col_for_counting = 'order_number' # Nombre estándar después del mapeo
+            if col_for_counting not in df_to_plot_from.columns:
+                # Si 'order_number' no está, intentamos con la primera columna del df como placeholder para 'count'.
+                # La función de ploteo debería usar aggfunc='size' o 'count' sobre cualquier columna no nula.
+                if not df_to_plot_from.is_empty() and len(df_to_plot_from.columns) > 0:
+                    col_for_counting = df_to_plot_from.columns[0]
+                    logger.info(f"Columna '{col_for_counting}' (primera disponible) se usará como base para heatmap de conteo en '{output_label} - {status_subdir}'.")
+                else:
+                    col_for_counting = None # No hay columnas disponibles
+            
+            if col_for_counting:
+                path_heatmap_count = plotting.plot_heatmap_hour_day(
+                    df_to_plot_from, 
+                    figures_dir, 
+                    value_col_name=col_for_counting, # Columna a usar por aggfunc='count'
+                    agg_func='count', 
+                    title_suffix=final_title_suffix, 
+                    file_identifier=file_name_suffix_from_cli
+                )
+                add_figure_to_html_list(path_heatmap_count, "Heatmap de Actividad (Conteo de Operaciones)")
+            else:
+                logger.warning(f"No se pudo determinar una columna para el heatmap de conteo en '{output_label} - {status_subdir}'. El DataFrame está vacío o no tiene columnas.")
+
+        except Exception as e_heatmap_count:
+            logger.error(f"Error al generar Heatmap (conteo) para '{output_label} - {status_subdir}': {e_heatmap_count}.")
+
+        # Para el heatmap de volumen (TotalPrice_num):
+        if 'TotalPrice_num' in df_to_plot_from.columns: 
+            try:
+                path_heatmap_volume = plotting.plot_heatmap_hour_day(
+                    df_to_plot_from, 
+                    figures_dir, 
+                    value_col_name='TotalPrice_num', 
+                    agg_func='sum', 
+                    title_suffix=final_title_suffix, 
+                    file_identifier=file_name_suffix_from_cli
+                )
+                add_figure_to_html_list(path_heatmap_volume, "Heatmap de Actividad (Volumen TotalPrice_num)")
+            except Exception as e_heatmap_vol:
+                logger.error(f"Error al generar Heatmap (volumen) para '{output_label} - {status_subdir}': {e_heatmap_vol}.")
+        else:
+            logger.warning(f"Columna 'TotalPrice_num' no encontrada para heatmap de volumen en '{output_label} - {status_subdir}'.")
+    else:
+        logger.info(f"DataFrame principal (df_to_plot_from) vacío para '{output_label} - {status_subdir}', no se generan Heatmaps Hora x Día.")
+
+    # DONE: 2.3 Llamar a plot_violin_price_vs_payment_method
+    logger.info(f"Intentando generar Gráficos de Violín (Precio vs Método Pago) para '{output_label} - {status_subdir}'...")
+    paths_violin_price_payment = None
+    if df_to_plot_from is not None and not df_to_plot_from.is_empty():
+        try:
+            paths_violin_price_payment = plotting.plot_violin_price_vs_payment_method(
+                df_to_plot_from, 
+                figures_dir, 
+                title_suffix=final_title_suffix, 
+                file_identifier=file_name_suffix_from_cli
+            )
+        except Exception as e_violin_plot:
+            logger.error(f"Error al generar gráficos de violín (Precio vs Método Pago) para '{output_label} - {status_subdir}': {e_violin_plot}.")
+        add_figure_to_html_list(paths_violin_price_payment, "Distribución de Precio por Método de Pago (Violín)")
+    else:
+        logger.info(f"DataFrame principal (df_to_plot_from) vacío para '{output_label} - {status_subdir}', no se generan gráficos de violín.")
+
+    # DONE: 2.4 Llamar a plot_yoy_monthly_comparison
+    logger.info(f"Intentando generar Gráficos YoY Mensuales para '{output_label} - {status_subdir}'...")
+    paths_yoy_total_price = None
+    paths_yoy_quantity = None
+    if df_to_plot_from is not None and not df_to_plot_from.is_empty():
+        # YoY para TotalPrice_num
+        if 'TotalPrice_num' in df_to_plot_from.columns:
+            try:
+                paths_yoy_total_price = plotting.plot_yoy_monthly_comparison(
+                    df_to_plot_from, 
+                    figures_dir, 
+                    value_col='TotalPrice_num',
+                    agg_func='sum',
+                    title_suffix=final_title_suffix, 
+                    file_identifier=file_name_suffix_from_cli
+                )
+                add_figure_to_html_list(paths_yoy_total_price, "Comparación Mensual YoY (Suma de TotalPrice_num)")
+            except Exception as e_yoy_tp:
+                logger.error(f"Error al generar gráficos YoY (TotalPrice_num) para '{output_label} - {status_subdir}': {e_yoy_tp}.")
+        else:
+            logger.warning(f"Columna 'TotalPrice_num' no encontrada para YoY en '{output_label} - {status_subdir}'.")
+
+        # YoY para Quantity_num
+        if 'Quantity_num' in df_to_plot_from.columns:
+            try:
+                paths_yoy_quantity = plotting.plot_yoy_monthly_comparison(
+                    df_to_plot_from, 
+                    figures_dir, 
+                    value_col='Quantity_num',
+                    agg_func='sum',
+                    title_suffix=final_title_suffix, 
+                    file_identifier=file_name_suffix_from_cli
+                )
+                add_figure_to_html_list(paths_yoy_quantity, "Comparación Mensual YoY (Suma de Quantity_num)")
+            except Exception as e_yoy_qty:
+                logger.error(f"Error al generar gráficos YoY (Quantity_num) para '{output_label} - {status_subdir}': {e_yoy_qty}.")
+        else:
+            logger.warning(f"Columna 'Quantity_num' no encontrada para YoY en '{output_label} - {status_subdir}'.")
+    else:
+        logger.info(f"DataFrame principal (df_to_plot_from) vacío para '{output_label} - {status_subdir}', no se generan gráficos YoY.")
+
+    # DONE: 2.5 Llamar a plot_animated_scatter_price_volume
+    logger.info(f"Intentando generar Scatter Animado (Precio/Volumen) para '{output_label} - {status_subdir}'...")
+    path_animated_scatter = None
+    if df_to_plot_from is not None and not df_to_plot_from.is_empty():
+        # Usaremos el df_to_plot_from que corresponde al período y estado actual.
+        # La función de ploteo ya está diseñada para manejar Polars y convertir a Pandas.
+        try:
+            path_animated_scatter = plotting.plot_animated_scatter_price_volume(
+                df_to_plot_from, 
+                figures_dir, 
+                title_suffix=final_title_suffix, 
+                file_identifier=file_name_suffix_from_cli
+            )
+        except Exception as e_anim_scatter:
+            logger.error(f"Error al generar scatter animado para '{output_label} - {status_subdir}': {e_anim_scatter}.")
+        add_figure_to_html_list(path_animated_scatter, "Scatter Animado Precio vs. Volumen por Día")
+    else:
+        logger.info(f"DataFrame principal (df_to_plot_from) vacío para '{output_label} - {status_subdir}', no se genera scatter animado.")
 
     # --- Completed Data Plots --- 
     status_col_name_in_pandas = 'status' 
@@ -360,7 +515,10 @@ def save_outputs(
             'applied_filters': {},
             'sales_summary_data': {},
             'included_tables': [],
-            'included_figures': figures_for_html
+            'included_figures': figures_for_html,
+            'interactive_mode': cli_args.interactive,
+            'whale_trades_data': False, # Inicializar por si acaso
+            'event_comparison_data': False # Inicializar por si acaso
         }
         
         if cli_args.fiat_filter: html_context['applied_filters']['Monedas Fiat (CLI)'] = ", ".join(cli_args.fiat_filter)
@@ -373,13 +531,71 @@ def save_outputs(
             html_context['applied_filters']['Periodo Analizado'] = "Total Consolidado"
         html_context['applied_filters']['Categoría de Estado Procesada'] = status_subdir.capitalize()
 
+        # DONE: 3.1 Añadir Whale Trades al contexto HTML
+        whale_trades_df = metrics_to_save_pandas.get('whale_trades')
+        if whale_trades_df is not None and isinstance(whale_trades_df, pd.DataFrame) and not whale_trades_df.empty:
+            logger.info(f"Añadiendo 'whale_trades' al reporte HTML para '{output_label} - {status_subdir}'.")
+            html_context['whale_trades_data'] = True # Indicar que hay datos
+            try:
+                # Formatear columnas de fecha/hora si existen, antes de convertir a HTML
+                if 'Match_time_local' in whale_trades_df.columns:
+                    # Intentar convertir a datetime si no lo es, luego formatear
+                    if not pd.api.types.is_datetime64_any_dtype(whale_trades_df['Match_time_local']):
+                        whale_trades_df['Match_time_local'] = pd.to_datetime(whale_trades_df['Match_time_local'], errors='coerce')
+                    # Formatear solo si la conversión fue exitosa y es datetime
+                    if pd.api.types.is_datetime64_any_dtype(whale_trades_df['Match_time_local']):
+                         whale_trades_df['Match_time_local'] = whale_trades_df['Match_time_local'].dt.strftime('%Y-%m-%d %H:%M:%S')
+                
+                # Formatear columnas numéricas para mejor lectura
+                for col_num_format in ['Price_num', 'Quantity_num', 'TotalPrice_num']:
+                    if col_num_format in whale_trades_df.columns:
+                        whale_trades_df[col_num_format] = whale_trades_df[col_num_format].apply(lambda x: f"{x:,.2f}" if pd.notnull(x) else x)
+
+                # DONE: 4.2 Añadir clase datatable-ready
+                html_context['whale_trades_table_html'] = whale_trades_df.to_html(classes='table table-striped table-hover table-sm datatable-ready', border=0, index=False, na_rep='N/A')
+            except Exception as e_html_whale:
+                logger.error(f"Error generando HTML para whale_trades: {e_html_whale}")
+                html_context['whale_trades_table_html'] = "<p>Error al generar tabla de whale trades.</p>"
+                html_context['whale_trades_data'] = False # Indicar que hubo error
+        else:
+            logger.info(f"No hay datos de 'whale_trades' para el reporte HTML en '{output_label} - {status_subdir}'.")
+            html_context['whale_trades_data'] = False # Indicar que no hay datos
+
+        # DONE: 3.2 Añadir Event Comparison al contexto HTML
+        event_comp_df = metrics_to_save_pandas.get('event_comparison_stats')
+        if cli_args.event_date and event_comp_df is not None and isinstance(event_comp_df, pd.DataFrame) and not event_comp_df.empty:
+            logger.info(f"Añadiendo 'event_comparison_stats' para fecha {cli_args.event_date} al reporte HTML para '{output_label} - {status_subdir}'.")
+            html_context['event_comparison_data'] = True # Indicar que hay datos
+            html_context['event_date_for_report'] = cli_args.event_date
+            try:
+                # Formatear columnas numéricas para mejor lectura
+                cols_to_format_event = ['num_trades', 'total_volume_asset', 'total_volume_fiat', 'avg_price', 'median_price']
+                event_comp_df_display = event_comp_df.copy()
+                for col_num_format in cols_to_format_event:
+                    if col_num_format in event_comp_df_display.columns:
+                        if col_num_format == 'num_trades':
+                             event_comp_df_display[col_num_format] = event_comp_df_display[col_num_format].apply(lambda x: f"{x:,}" if pd.notnull(x) else '0')
+                        else:
+                             event_comp_df_display[col_num_format] = event_comp_df_display[col_num_format].apply(lambda x: f"{x:,.2f}" if pd.notnull(x) else ('N/A' if x is None else x))
+                
+                # DONE: 4.2 Añadir clase datatable-ready
+                html_context['event_comparison_table_html'] = event_comp_df_display.to_html(classes='table table-striped table-hover table-sm datatable-ready', border=0, index=False, na_rep='N/A')
+            except Exception as e_html_event_comp:
+                logger.error(f"Error generando HTML para event_comparison_stats: {e_html_event_comp}")
+                html_context['event_comparison_table_html'] = "<p>Error al generar tabla de comparación de evento.</p>"
+                html_context['event_comparison_data'] = False
+        else:
+            logger.info(f"No hay datos de 'event_comparison_stats' (o --event-date no usado/datos insuficientes) para el reporte HTML en '{output_label} - {status_subdir}'.")
+            html_context['event_comparison_data'] = False
+
         sales_summary_df_key = 'sales_summary_all_assets_fiat_detailed'
         sales_summary_pd = metrics_to_save_pandas.get(sales_summary_df_key)
         if sales_summary_pd is not None and isinstance(sales_summary_pd, pd.DataFrame) and not sales_summary_pd.empty:
             logger.info(f"Añadiendo '{sales_summary_df_key}' al reporte HTML para '{output_label} - {status_subdir}'.")
             html_context['sales_summary_data']['sales_summary_all_assets_fiat_detailed'] = True
             try:
-                html_context['sales_summary_data']['sales_summary_all_assets_fiat_detailed_html'] = sales_summary_pd.to_html(classes='table table-striped table-hover table-sm', border=0, index=False)
+                # DONE: 4.2 Añadir clase datatable-ready
+                html_context['sales_summary_data']['sales_summary_all_assets_fiat_detailed_html'] = sales_summary_pd.to_html(classes='table table-striped table-hover table-sm datatable-ready', border=0, index=False)
             except Exception as e_html_sales:
                 logger.error(f"Error generando HTML para sales_summary: {e_html_sales}")
                 html_context['sales_summary_data']['sales_summary_all_assets_fiat_detailed_html'] = "<p>Error al generar tabla de resumen de ventas.</p>"
@@ -400,7 +616,8 @@ def save_outputs(
                         series_name = table_df_pandas.name if table_df_pandas.name else table_key.replace('_', ' ').title()
                         table_df_pandas_for_html = table_df_pandas.to_frame(name=series_name) 
                         should_show_index_for_series = True 
-                        current_table_html = table_df_pandas_for_html.to_html(classes='table table-striped table-hover table-sm', border=0, index=should_show_index_for_series)
+                        # DONE: 4.2 Añadir clase datatable-ready
+                        current_table_html = table_df_pandas_for_html.to_html(classes='table table-striped table-hover table-sm datatable-ready', border=0, index=should_show_index_for_series)
                     elif isinstance(table_df_pandas, pd.DataFrame):
                         should_show_index = True 
                         if table_key in ['status_counts', 'side_counts', 'hourly_counts']:
@@ -410,7 +627,8 @@ def save_outputs(
                         elif isinstance(table_df_pandas.index, pd.MultiIndex):
                             should_show_index = True 
 
-                        current_table_html = table_df_pandas.to_html(classes='table table-striped table-hover table-sm', border=0, index=should_show_index)
+                        # DONE: 4.2 Añadir clase datatable-ready
+                        current_table_html = table_df_pandas.to_html(classes='table table-striped table-hover table-sm datatable-ready', border=0, index=should_show_index)
                     else:
                         logger.warning(f"El objeto para la tabla '{table_key}' no es ni Serie ni DataFrame de Pandas. Tipo: {type(table_df_pandas)}. Se omite del HTML.")
                         continue 
@@ -440,5 +658,93 @@ def save_outputs(
             logger.error(f"Error al renderizar o guardar el reporte HTML para '{output_label} - {status_subdir}': {e_render}")
     else:
         logger.warning(f"No se encontró la plantilla HTML. No se generará el reporte HTML para '{section_id}'.")
+
+    # DONE: 4.3 Export XLSX multi-hoja
+    logger.info(f"Iniciando exportación XLSX multi-hoja para '{output_label} - {status_subdir}'...")
+    xlsx_filename = f"p2p_analysis_summary{file_name_suffix_from_cli}.xlsx"
+    xlsx_path = os.path.join(reports_dir, xlsx_filename) # Guardar en la subcarpeta de reports
+    
+    try:
+        with pd.ExcelWriter(xlsx_path, engine='openpyxl') as writer:
+            # Hoja de resumen con el DataFrame principal procesado
+            if not df_to_plot_from_pandas.empty:
+                try:
+                    df_summary_sheet = df_to_plot_from_pandas.copy()
+                    # Manejar índice del DataFrame si es datetime con timezone
+                    if pd.api.types.is_datetime64_any_dtype(df_summary_sheet.index) and getattr(df_summary_sheet.index, 'tz', None) is not None:
+                        logger.info(f"  Convirtiendo índice de 'Operaciones_Procesadas' a timezone-naive para Excel.")
+                        df_summary_sheet.index = df_summary_sheet.index.tz_convert(None)
+                        
+                    for col in df_summary_sheet.columns:
+                        if pd.api.types.is_datetime64_any_dtype(df_summary_sheet[col]):
+                            if getattr(df_summary_sheet[col].dt, 'tz', None) is not None:
+                                logger.info(f"  Convirtiendo columna datetime '{col}' en 'Operaciones_Procesadas' a timezone-naive para Excel.")
+                                df_summary_sheet[col] = df_summary_sheet[col].dt.tz_convert(None)
+                        elif df_summary_sheet[col].dtype == object or pd.api.types.is_extension_array_dtype(df_summary_sheet[col]):
+                            try: # Intentar convertir a string si no es numérico ni datetime ya manejado
+                                if not pd.api.types.is_numeric_dtype(df_summary_sheet[col].infer_objects()):
+                                    logger.info(f"  Convirtiendo columna objeto/extensión '{col}' en 'Operaciones_Procesadas' a string para Excel.")
+                                    df_summary_sheet[col] = df_summary_sheet[col].astype(str)
+                            except Exception as e_astype:
+                                logger.warning(f"  No se pudo convertir columna '{col}' a string en 'Operaciones_Procesadas': {e_astype}. Se deja como está.")
+                    
+                    max_raw_data_rows_excel = config.get('excel_export_max_raw_rows', 10000)
+                    if len(df_summary_sheet) > max_raw_data_rows_excel:
+                        logger.warning(f"DataFrame principal para Excel es muy grande ({len(df_summary_sheet)} filas), se truncará a {max_raw_data_rows_excel} filas para la hoja 'Operaciones_Procesadas'.")
+                        df_summary_sheet = df_summary_sheet.head(max_raw_data_rows_excel)
+                    df_summary_sheet.to_excel(writer, sheet_name='Operaciones_Procesadas', index=False)
+                    logger.info(f"  Hoja 'Operaciones_Procesadas' añadida al XLSX.")
+                except Exception as e_sheet_raw:
+                    logger.error(f"  Error al escribir la hoja 'Operaciones_Procesadas' en XLSX: {e_sheet_raw}")
+
+            # Guardar cada métrica (que sea DataFrame o Serie) en una hoja separada
+            for metric_name, metric_data_pd_original in metrics_to_save_pandas.items():
+                if isinstance(metric_data_pd_original, (pd.DataFrame, pd.Series)) and not metric_data_pd_original.empty:
+                    metric_data_pd_excel = metric_data_pd_original.copy()
+                    
+                    if isinstance(metric_data_pd_excel, pd.DataFrame):
+                        if pd.api.types.is_datetime64_any_dtype(metric_data_pd_excel.index) and getattr(metric_data_pd_excel.index, 'tz', None) is not None:
+                            logger.info(f"  Convirtiendo índice de DataFrame métrica '{metric_name[:31]}' a timezone-naive para Excel.")
+                            metric_data_pd_excel.index = metric_data_pd_excel.index.tz_convert(None)
+                        for col in metric_data_pd_excel.columns:
+                            if pd.api.types.is_datetime64_any_dtype(metric_data_pd_excel[col]):
+                                if getattr(metric_data_pd_excel[col].dt, 'tz', None) is not None:
+                                    logger.info(f"  Convirtiendo columna datetime '{col}' en hoja '{metric_name[:31]}' a timezone-naive para Excel.")
+                                    metric_data_pd_excel[col] = metric_data_pd_excel[col].dt.tz_convert(None)
+                            elif metric_data_pd_excel[col].dtype == object or pd.api.types.is_extension_array_dtype(metric_data_pd_excel[col]):
+                                try:
+                                    if not pd.api.types.is_numeric_dtype(metric_data_pd_excel[col].infer_objects()):
+                                        logger.info(f"  Convirtiendo columna objeto/extensión '{col}' en hoja '{metric_name[:31]}' a string para Excel.")
+                                        metric_data_pd_excel[col] = metric_data_pd_excel[col].astype(str)
+                                except Exception as e_astype_metric_col:
+                                    logger.warning(f"  No se pudo convertir columna '{col}' a string en hoja '{metric_name[:31]}': {e_astype_metric_col}. Se deja como está.")
+
+                    elif isinstance(metric_data_pd_excel, pd.Series):
+                        if pd.api.types.is_datetime64_any_dtype(metric_data_pd_excel.index) and getattr(metric_data_pd_excel.index, 'tz', None) is not None:
+                            logger.info(f"  Convirtiendo índice de Serie '{metric_name[:31]}' a timezone-naive para Excel.")
+                            metric_data_pd_excel.index = metric_data_pd_excel.index.tz_convert(None)
+                        if pd.api.types.is_datetime64_any_dtype(metric_data_pd_excel.dtype) and getattr(metric_data_pd_excel.dt, 'tz', None) is not None:
+                            logger.info(f"  Convirtiendo valores datetime de Serie '{metric_name[:31]}' a timezone-naive para Excel.")
+                            metric_data_pd_excel = metric_data_pd_excel.dt.tz_convert(None)
+                        elif metric_data_pd_excel.dtype == object or pd.api.types.is_extension_array_dtype(metric_data_pd_excel.dtype):
+                            try:
+                                if not pd.api.types.is_numeric_dtype(metric_data_pd_excel.infer_objects()):
+                                    logger.info(f"  Convirtiendo valores objeto/extensión de Serie '{metric_name[:31]}' a string para Excel.")
+                                    metric_data_pd_excel = metric_data_pd_excel.astype(str)
+                            except Exception as e_astype_metric_series:
+                                logger.warning(f"  No se pudo convertir valores de Serie '{metric_name[:31]}' a string : {e_astype_metric_series}. Se deja como está.")
+                    
+                    sane_sheet_name = metric_name.replace('[', '(').replace(']', ')').replace('*', '').replace(':', '-').replace('/', '-').replace('\\', '-').replace('?', '')
+                    sane_sheet_name = sane_sheet_name[:31]
+                    try:
+                        metric_data_pd_excel.to_excel(writer, sheet_name=sane_sheet_name, index=isinstance(metric_data_pd_excel, pd.Series))
+                        logger.info(f"  Hoja '{sane_sheet_name}' (desde métrica '{metric_name}') añadida al XLSX.")
+                    except Exception as e_sheet:
+                        logger.error(f"  Error al escribir hoja '{sane_sheet_name}' (métrica '{metric_name}') en XLSX: {e_sheet}")
+                elif not isinstance(metric_data_pd_original, (pd.DataFrame, pd.Series)):
+                     logger.info(f"  Métrica '{metric_name}' no es DataFrame/Serie Pandas, se omite de XLSX. Tipo: {type(metric_data_pd_original)}.")
+        logger.info(f"Archivo XLSX multi-hoja guardado en: {xlsx_path}")
+    except Exception as e_xlsx:
+        logger.error(f"Error al generar o guardar el archivo XLSX '{xlsx_path}': {e_xlsx}")
 
     logger.info(f"--- FIN: Procesamiento y Guardado para: {section_id} ---") 

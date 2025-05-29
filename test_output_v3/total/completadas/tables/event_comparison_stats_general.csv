@@ -1,0 +1,3 @@
+period,num_trades,total_volume_asset,total_volume_fiat,avg_price,median_price
+24h_before_event,4,5176.79,5142.46,496.9945,497.014
+24h_after_event,0,0.0,0.0,,
