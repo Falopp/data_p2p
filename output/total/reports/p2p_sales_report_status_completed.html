@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reporte de Operaciones P2P - Consolidado Total  (Status Completed)</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+            line-height: 1.6;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: auto;
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1, h2, h3 {
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+            margin-top: 30px;
+        }
+        h1 { font-size: 2em; }
+        h2 { font-size: 1.5em; }
+        h3 { font-size: 1.2em; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+        th {
+            background-color: #007bff;
+            color: white;
+        }
+        tr:nth-child(even) { background-color: #f2f2f2; }
+        .filters, .summary, .metrics-table, .figure {
+            margin-bottom: 30px;
+            padding: 15px;
+            background-color: #e9ecef;
+            border-left: 5px solid #007bff;
+            border-radius: 4px;
+        }
+        .filters ul { list-style-type: none; padding-left: 0; }
+        .filters li { margin-bottom: 5px; }
+        .figure img {
+            max-width: 100%;
+            height: auto;
+            display: block;
+            margin: 10px auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #ccc;
+            font-size: 0.9em;
+            color: #777;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Reporte de Operaciones P2P - Consolidado Total  (Status Completed)</h1>
+
+        
+        <div class="filters">
+            <h2>Filtros Aplicados:</h2>
+            <ul>
+                
+                    <li><strong>Estados:</strong> Completed</li>
+                
+            </ul>
+        </div>
+        
+
+        
+
+        
+        <h2>Tablas Detalladas</h2>
+        
+            <div class="metrics-table">
+                <h3>Asset Stats</h3>
+                
+                    <table class="dataframe table table-striped table-hover">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th></th>
+      <th>operations</th>
+      <th>quantity</th>
+      <th>total_fiat</th>
+      <th>total_fees</th>
+    </tr>
+    <tr>
+      <th>asset_type</th>
+      <th>order_type</th>
+      <th></th>
+      <th></th>
+      <th></th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th rowspan="2" valign="top">USDT</th>
+      <th>Sell</th>
+      <td>1840</td>
+      <td>1.383931e+06</td>
+      <td>11558191.15</td>
+      <td>3.464360e+03</td>
+    </tr>
+    <tr>
+      <th>Buy</th>
+      <td>1392</td>
+      <td>1.148685e+06</td>
+      <td>3516283.30</td>
+      <td>2.945350e+03</td>
+    </tr>
+    <tr>
+      <th>BUSD</th>
+      <th>Buy</th>
+      <td>55</td>
+      <td>1.977266e+09</td>
+      <td>128039.68</td>
+      <td>4.690134e+06</td>
+    </tr>
+    <tr>
+      <th>BTC</th>
+      <th>Buy</th>
+      <td>91</td>
+      <td>1.711184e+05</td>
+      <td>111927.30</td>
+      <td>7.641583e+03</td>
+    </tr>
+    <tr>
+      <th>ETH</th>
+      <th>Buy</th>
+      <td>20</td>
+      <td>7.349167e+05</td>
+      <td>19873.58</td>
+      <td>2.507240e+03</td>
+    </tr>
+  </tbody>
+</table>
+                
+            </div>
+        
+            <div class="metrics-table">
+                <h3>Fiat Stats</h3>
+                
+                    <table class="dataframe table table-striped table-hover">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th></th>
+      <th>operations</th>
+      <th>total_fiat</th>
+      <th>avg_price</th>
+      <th>total_fees</th>
+    </tr>
+    <tr>
+      <th>fiat_type</th>
+      <th>order_type</th>
+      <th></th>
+      <th></th>
+      <th></th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th rowspan="2" valign="top">UYU</th>
+      <th>Sell</th>
+      <td>653</td>
+      <td>10361693.77</td>
+      <td>43.288806</td>
+      <td>2.956600e+02</td>
+    </tr>
+    <tr>
+      <th>Buy</th>
+      <td>271</td>
+      <td>2548469.80</td>
+      <td>6757.823358</td>
+      <td>8.837054e+04</td>
+    </tr>
+    <tr>
+      <th rowspan="2" valign="top">USD</th>
+      <th>Buy</th>
+      <td>1287</td>
+      <td>1227654.06</td>
+      <td>3711.372899</td>
+      <td>4.614857e+06</td>
+    </tr>
+    <tr>
+      <th>Sell</th>
+      <td>1187</td>
+      <td>1196497.38</td>
+      <td>1.042158</td>
+      <td>3.168700e+03</td>
+    </tr>
+  </tbody>
+</table>
+                
+            </div>
+        
+        
+
+        
+        <h2>Visualizaciones</h2>
+        
+            <div class="figure">
+                <h3>Operaciones por Hora (Hourly Counts)</h3>
+                
+                    <img src="../figures/hourly_counts_status_completed.png" alt="Operaciones por Hora (Hourly Counts)">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Volumen Mensual de Fiat - Usd</h3>
+                
+                    <img src="../figures/monthly_fiat_volume_usd_status_completed.png" alt="Volumen Mensual de Fiat - Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Volumen Mensual de Fiat - Uyu</h3>
+                
+                    <img src="../figures/monthly_fiat_volume_uyu_status_completed.png" alt="Volumen Mensual de Fiat - Uyu">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Distribución Tipos de Orden (Buy Sell Distribution)</h3>
+                
+                    <img src="../figures/buy_sell_distribution_status_completed.png" alt="Distribución Tipos de Orden (Buy Sell Distribution)">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Distribución Estados de Orden (Order Status Distribution)</h3>
+                
+                    <img src="../figures/order_status_distribution_status_completed.png" alt="Distribución Estados de Orden (Order Status Distribution)">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Distribución de Precios - Btc Usd</h3>
+                
+                    <img src="../figures/price_distribution_btc_usd_status_completed.png" alt="Distribución de Precios - Btc Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Distribución de Precios - Btc Uyu</h3>
+                
+                    <img src="../figures/price_distribution_btc_uyu_status_completed.png" alt="Distribución de Precios - Btc Uyu">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Distribución de Precios - Busd Usd</h3>
+                
+                    <img src="../figures/price_distribution_busd_usd_status_completed.png" alt="Distribución de Precios - Busd Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Distribución de Precios - Busd Uyu</h3>
+                
+                    <img src="../figures/price_distribution_busd_uyu_status_completed.png" alt="Distribución de Precios - Busd Uyu">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Distribución de Precios - Eth Usd</h3>
+                
+                    <img src="../figures/price_distribution_eth_usd_status_completed.png" alt="Distribución de Precios - Eth Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Distribución de Precios - Usdt Usd</h3>
+                
+                    <img src="../figures/price_distribution_usdt_usd_status_completed.png" alt="Distribución de Precios - Usdt Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Distribución de Precios - Usdt Uyu</h3>
+                
+                    <img src="../figures/price_distribution_usdt_uyu_status_completed.png" alt="Distribución de Precios - Usdt Uyu">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Volumen vs. Precio - Btc Usd</h3>
+                
+                    <img src="../figures/volume_vs_price_scatter_btc_usd_status_completed.png" alt="Volumen vs. Precio - Btc Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Volumen vs. Precio - Btc Uyu</h3>
+                
+                    <img src="../figures/volume_vs_price_scatter_btc_uyu_status_completed.png" alt="Volumen vs. Precio - Btc Uyu">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Volumen vs. Precio - Busd Usd</h3>
+                
+                    <img src="../figures/volume_vs_price_scatter_busd_usd_status_completed.png" alt="Volumen vs. Precio - Busd Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Volumen vs. Precio - Busd Uyu</h3>
+                
+                    <img src="../figures/volume_vs_price_scatter_busd_uyu_status_completed.png" alt="Volumen vs. Precio - Busd Uyu">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Volumen vs. Precio - Eth Usd</h3>
+                
+                    <img src="../figures/volume_vs_price_scatter_eth_usd_status_completed.png" alt="Volumen vs. Precio - Eth Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Volumen vs. Precio - Usdt Usd</h3>
+                
+                    <img src="../figures/volume_vs_price_scatter_usdt_usd_status_completed.png" alt="Volumen vs. Precio - Usdt Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Volumen vs. Precio - Usdt Uyu</h3>
+                
+                    <img src="../figures/volume_vs_price_scatter_usdt_uyu_status_completed.png" alt="Volumen vs. Precio - Usdt Uyu">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Evolución del Precio - Btc Usd</h3>
+                
+                    <img src="../figures/price_over_time_btc_usd_status_completed.png" alt="Evolución del Precio - Btc Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Evolución del Precio - Btc Uyu</h3>
+                
+                    <img src="../figures/price_over_time_btc_uyu_status_completed.png" alt="Evolución del Precio - Btc Uyu">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Evolución del Precio - Busd Usd</h3>
+                
+                    <img src="../figures/price_over_time_busd_usd_status_completed.png" alt="Evolución del Precio - Busd Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Evolución del Precio - Busd Uyu</h3>
+                
+                    <img src="../figures/price_over_time_busd_uyu_status_completed.png" alt="Evolución del Precio - Busd Uyu">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Evolución del Precio - Eth Usd</h3>
+                
+                    <img src="../figures/price_over_time_eth_usd_status_completed.png" alt="Evolución del Precio - Eth Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Evolución del Precio - Usdt Usd</h3>
+                
+                    <img src="../figures/price_over_time_usdt_usd_status_completed.png" alt="Evolución del Precio - Usdt Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Evolución del Precio - Usdt Uyu</h3>
+                
+                    <img src="../figures/price_over_time_usdt_uyu_status_completed.png" alt="Evolución del Precio - Usdt Uyu">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Evolución del Volumen - Btc Usd</h3>
+                
+                    <img src="../figures/volume_over_time_asset_quantity_btc_usd_status_completed.png" alt="Evolución del Volumen - Btc Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Evolución del Volumen - Btc Usd</h3>
+                
+                    <img src="../figures/volume_over_time_fiat_value_btc_usd_status_completed.png" alt="Evolución del Volumen - Btc Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Evolución del Volumen - Btc Uyu</h3>
+                
+                    <img src="../figures/volume_over_time_asset_quantity_btc_uyu_status_completed.png" alt="Evolución del Volumen - Btc Uyu">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Evolución del Volumen - Btc Uyu</h3>
+                
+                    <img src="../figures/volume_over_time_fiat_value_btc_uyu_status_completed.png" alt="Evolución del Volumen - Btc Uyu">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Evolución del Volumen - Busd Usd</h3>
+                
+                    <img src="../figures/volume_over_time_asset_quantity_busd_usd_status_completed.png" alt="Evolución del Volumen - Busd Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Evolución del Volumen - Busd Usd</h3>
+                
+                    <img src="../figures/volume_over_time_fiat_value_busd_usd_status_completed.png" alt="Evolución del Volumen - Busd Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Evolución del Volumen - Busd Uyu</h3>
+                
+                    <img src="../figures/volume_over_time_asset_quantity_busd_uyu_status_completed.png" alt="Evolución del Volumen - Busd Uyu">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Evolución del Volumen - Busd Uyu</h3>
+                
+                    <img src="../figures/volume_over_time_fiat_value_busd_uyu_status_completed.png" alt="Evolución del Volumen - Busd Uyu">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Evolución del Volumen - Eth Usd</h3>
+                
+                    <img src="../figures/volume_over_time_asset_quantity_eth_usd_status_completed.png" alt="Evolución del Volumen - Eth Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Evolución del Volumen - Eth Usd</h3>
+                
+                    <img src="../figures/volume_over_time_fiat_value_eth_usd_status_completed.png" alt="Evolución del Volumen - Eth Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Evolución del Volumen - Usdt Usd</h3>
+                
+                    <img src="../figures/volume_over_time_asset_quantity_usdt_usd_status_completed.png" alt="Evolución del Volumen - Usdt Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Evolución del Volumen - Usdt Usd</h3>
+                
+                    <img src="../figures/volume_over_time_fiat_value_usdt_usd_status_completed.png" alt="Evolución del Volumen - Usdt Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Evolución del Volumen - Usdt Uyu</h3>
+                
+                    <img src="../figures/volume_over_time_asset_quantity_usdt_uyu_status_completed.png" alt="Evolución del Volumen - Usdt Uyu">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Evolución del Volumen - Usdt Uyu</h3>
+                
+                    <img src="../figures/volume_over_time_fiat_value_usdt_uyu_status_completed.png" alt="Evolución del Volumen - Usdt Uyu">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Precio vs. Método de Pago - Btc Usd</h3>
+                
+                    <img src="../figures/price_vs_payment_method_btc_usd_status_completed.png" alt="Precio vs. Método de Pago - Btc Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Precio vs. Método de Pago - Btc Uyu</h3>
+                
+                    <img src="../figures/price_vs_payment_method_btc_uyu_status_completed.png" alt="Precio vs. Método de Pago - Btc Uyu">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Precio vs. Método de Pago - Busd Usd</h3>
+                
+                    <img src="../figures/price_vs_payment_method_busd_usd_status_completed.png" alt="Precio vs. Método de Pago - Busd Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Precio vs. Método de Pago - Busd Uyu</h3>
+                
+                    <img src="../figures/price_vs_payment_method_busd_uyu_status_completed.png" alt="Precio vs. Método de Pago - Busd Uyu">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Precio vs. Método de Pago - Eth Usd</h3>
+                
+                    <img src="../figures/price_vs_payment_method_eth_usd_status_completed.png" alt="Precio vs. Método de Pago - Eth Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Precio vs. Método de Pago - Usdt Usd</h3>
+                
+                    <img src="../figures/price_vs_payment_method_usdt_usd_status_completed.png" alt="Precio vs. Método de Pago - Usdt Usd">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Precio vs. Método de Pago - Usdt Uyu</h3>
+                
+                    <img src="../figures/price_vs_payment_method_usdt_uyu_status_completed.png" alt="Precio vs. Método de Pago - Usdt Uyu">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Heatmap de Actividad (Activity Heatmap)</h3>
+                
+                    <img src="../figures/activity_heatmap_status_completed.png" alt="Heatmap de Actividad (Activity Heatmap)">
+                
+            </div>
+        
+            <div class="figure">
+                <h3>Análisis de Comisiones (Fees Total By Asset)</h3>
+                
+                    <img src="../figures/fees_total_by_asset_status_completed.png" alt="Análisis de Comisiones (Fees Total By Asset)">
+                
+            </div>
+        
+        
+
+        <div class="footer">
+            Reporte generado el 2025-05-28 21:53:48 (UTC-0300)
+        </div>
+    </div>
+</body>
+</html> 

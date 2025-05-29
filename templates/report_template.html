@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+            line-height: 1.6;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: auto;
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1, h2, h3 {
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+            margin-top: 30px;
+        }
+        h1 { font-size: 2em; }
+        h2 { font-size: 1.5em; }
+        h3 { font-size: 1.2em; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+        th {
+            background-color: #007bff;
+            color: white;
+        }
+        tr:nth-child(even) { background-color: #f2f2f2; }
+        .filters, .summary, .metrics-table, .figure {
+            margin-bottom: 30px;
+            padding: 15px;
+            background-color: #e9ecef;
+            border-left: 5px solid #007bff;
+            border-radius: 4px;
+        }
+        .filters ul { list-style-type: none; padding-left: 0; }
+        .filters li { margin-bottom: 5px; }
+        .figure img {
+            max-width: 100%;
+            height: auto;
+            display: block;
+            margin: 10px auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #ccc;
+            font-size: 0.9em;
+            color: #777;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{{ title }}</h1>
+
+        {% if applied_filters %}
+        <div class="filters">
+            <h2>Filtros Aplicados:</h2>
+            <ul>
+                {% for filter_name, filter_values in applied_filters.items() %}
+                    <li><strong>{{ filter_name }}:</strong> {{ filter_values | join(", ") if filter_values is iterable and filter_values is not string else filter_values }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        {% if sales_summary_data %}
+        <div class="summary">
+            <h2>Resumen de Ventas</h2>
+            {% if sales_summary_data.sales_summary_all_assets_fiat_detailed is defined and sales_summary_data.sales_summary_all_assets_fiat_detailed %}
+                <h3>Detalle por Activo y Fiat Recibida:</h3>
+                {{ sales_summary_data.sales_summary_all_assets_fiat_detailed_html | safe }}
+            {% else %}
+                <p>No hay datos de resumen de ventas disponibles para los filtros aplicados.</p>
+            {% endif %}
+            <!-- Aquí se podrían añadir más resúmenes de ventas si se generan -->
+        </div>
+        {% endif %}
+
+        {% if included_tables %}
+        <h2>Tablas Detalladas</h2>
+        {% for table_item in included_tables %}
+            <div class="metrics-table">
+                <h3>{{ table_item.title }}</h3>
+                {% if table_item.html %}
+                    {{ table_item.html | safe }}
+                {% else %}
+                    <p>Tabla no disponible o vacía.</p>
+                {% endif %}
+            </div>
+        {% endfor %}
+        {% endif %}
+
+        {% if included_figures %}
+        <h2>Visualizaciones</h2>
+        {% for fig_item in included_figures %}
+            <div class="figure">
+                <h3>{{ fig_item.title }}</h3>
+                {% if fig_item.path %}
+                    <img src="{{ fig_item.path }}" alt="{{ fig_item.title }}">
+                {% else %}
+                    <p>Gráfico no disponible.</p>
+                {% endif %}
+            </div>
+        {% endfor %}
+        {% endif %}
+
+        <div class="footer">
+            Reporte generado el {{ generation_timestamp }}
+        </div>
+    </div>
+</body>
+</html> 

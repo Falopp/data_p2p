@@ -1,0 +1,4 @@
+asset_type,total_fees_collected,avg_fee_per_op,num_ops_with_fees,max_fee
+BTC,2760.967,212.38207692307694,13,635.0
+USDT,400.78,1.340401337792642,299,15.39
+ETH,21.562,21.562,1,21.562

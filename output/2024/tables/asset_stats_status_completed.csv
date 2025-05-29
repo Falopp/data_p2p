@@ -1,0 +1,5 @@
+asset_type,order_type,operations,quantity,total_fiat,total_fees
+USDT,Sell,422,628680.05,666573.28,1758.17
+USDT,Buy,307,397225.92,397059.06,1111.03
+BTC,Buy,29,41728.93,52703.27,1536.884
+ETH,Buy,5,305186.052,8212.9,888.774
