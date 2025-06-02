@@ -3,10 +3,16 @@
 
 Este script maneja la carga de datos desde un archivo CSV, aplica filtros iniciales
 basados en argumentos de línea de comandos, realiza un pre-procesamiento básico
-(como la generación de columnas de fecha) y luego invoca el pipeline de análisis detallado.
+(como la generación de columnas de fecha) y luego invoca el pipeline de análisis
+detallado.
 
 Ejemplo de uso:
     python src/app.py --csv data/p2p.csv --out output_directorio
+
+Módulos requeridos:
+    - analyzer: Funciones de análisis principal
+    - config_loader: Carga de configuración
+    - main_logic: Pipeline de análisis y inicialización
 """
 from __future__ import annotations
 
@@ -22,161 +28,345 @@ from .analyzer import analyze
 from .config_loader import load_config
 from .main_logic import initialize_analysis, run_analysis_pipeline
 
-# --- Configuración de Logging ---
+# Configuración de logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
-# --- Constantes de Nombres de Columnas Internas ---
-# Estos nombres se usan después del mapeo inicial desde el CSV y para filtros.
+# Constantes de nombres de columnas internas
 INTERNAL_FIAT_COLUMN = "fiat_type"
 INTERNAL_ASSET_COLUMN = "asset_type"
 INTERNAL_STATUS_COLUMN = "status"
 INTERNAL_PAYMENT_METHOD_COLUMN = "payment_method"
 
 
-def _load_and_filter_data(
-    cli_args: argparse.Namespace, column_map_config: Dict[str, str]
-) -> Optional[pl.DataFrame]:
-    """
-    Carga los datos desde el archivo CSV especificado, renombra columnas según la configuración,
-    y aplica filtros basados en los argumentos CLI.
+def _load_csv_with_schema_override(
+    csv_path: str, column_map_config: Dict[str, str]
+) -> pl.DataFrame:
+    """Carga el archivo CSV con override de esquema para columnas específicas.
 
     Args:
-        cli_args: Argumentos parseados de la línea de comandos, incluyendo la ruta al CSV.
-        column_map_config: Mapeo de nombres de columnas del CSV a nombres internos.
+        csv_path: Ruta al archivo CSV
+        column_map_config: Mapeo de columnas de configuración
 
     Returns:
-        Un DataFrame de Polars con los datos cargados y filtrados, o None si ocurre un error
-        o si el DataFrame resultante de los filtros está vacío.
+        DataFrame de Polars con los datos cargados
+
+    Raises:
+        FileNotFoundError: Si el archivo CSV no existe
+        polars.exceptions.NoDataError: Si el CSV está vacío
+        polars.exceptions.SchemaError: Si hay problemas de esquema
+        polars.exceptions.ComputeError: Si hay errores de cómputo de Polars
     """
-    logger.info(f"Iniciando carga de datos desde el archivo CSV: {cli_args.csv}")
-    try:
-        csv_order_number_col: str = column_map_config.get("order_number", "Order Number")
-        csv_adv_order_number_col: str = column_map_config.get(
-            "adv_order_number", "Advertisement Order Number"
-        )
+    csv_order_number_col = column_map_config.get("order_number", "Order Number")
+    csv_adv_order_number_col = column_map_config.get(
+        "adv_order_number", "Advertisement Order Number"
+    )
 
-        csv_column_types_override: Dict[str, pl.DataType] = {
-            csv_order_number_col: pl.String,
-            csv_adv_order_number_col: pl.String,
-        }
+    csv_column_types_override: Dict[str, Any] = {
+        csv_order_number_col: pl.String,
+        csv_adv_order_number_col: pl.String,
+    }
 
-        raw_df: pl.DataFrame = pl.read_csv(
-            source=cli_args.csv,
-            infer_schema_length=10000,
-            null_values=["", "NA", "N/A", "NaN", "null"],
-            schema_overrides=csv_column_types_override,
-        )
-        logger.info(
-            f"Datos cargados exitosamente: {raw_df.shape[0]} filas, {raw_df.shape[1]} columnas."
-        )
+    raw_df = pl.read_csv(
+        source=csv_path,
+        infer_schema_length=10000,
+        null_values=["", "NA", "N/A", "NaN", "null"],
+        schema_overrides=csv_column_types_override,
+    )
 
-        column_rename_map: Dict[str, str] = {
-            csv_col_name: script_col_name
-            for script_col_name, csv_col_name in column_map_config.items()
-            if csv_col_name
-            and csv_col_name in raw_df.columns
+    logger.info(
+        f"Datos cargados exitosamente: {raw_df.shape[0]} filas, "
+        f"{raw_df.shape[1]} columnas."
+    )
+    return raw_df
+
+
+def _rename_columns_from_config(
+    df: pl.DataFrame, column_map_config: Dict[str, str]
+) -> pl.DataFrame:
+    """Renombra las columnas del DataFrame según la configuración.
+
+    Args:
+        df: DataFrame a procesar
+        column_map_config: Mapeo de nombres de columnas
+
+    Returns:
+        DataFrame con columnas renombradas
+    """
+    column_rename_map: Dict[str, str] = {
+        csv_col_name: script_col_name
+        for script_col_name, csv_col_name in column_map_config.items()
+        if (
+            csv_col_name
+            and csv_col_name in df.columns
             and csv_col_name != script_col_name
-        }
-        if column_rename_map:
-            raw_df = raw_df.rename(column_rename_map)
-            logger.info(f"Columnas renombradas según configuración: {column_rename_map}")
-
-    except FileNotFoundError:
-        logger.error(f"Error crítico: El archivo CSV no se encontró en la ruta especificada: {cli_args.csv}")
-        return None
-    except polars.exceptions.NoDataError:
-        logger.error(f"Error crítico: El archivo CSV '{cli_args.csv}' está vacío o no contiene datos legibles.")
-        return None
-    except polars.exceptions.SchemaError as e_schema:
-        logger.error(f"Error crítico de esquema al leer el CSV '{cli_args.csv}'. Verifique las columnas y tipos: {e_schema}")
-        return None
-    except polars.exceptions.ComputeError as e_compute:
-        logger.error(f"Error crítico de Polars durante la carga o renombrado inicial del CSV '{cli_args.csv}': {e_compute}")
-        return None
-    except Exception as e_general: # Captura más genérica para problemas inesperados durante carga/renombrado
-        logger.exception(f"Error inesperado y crítico al procesar el archivo CSV '{cli_args.csv}': {e_general}")
-        return None
-
-    # Clonar para aplicar filtros sin modificar el DataFrame original cargado (raw_df)
-    filtered_df: pl.DataFrame = raw_df.clone()
-
-    # Aplicación de filtros basados en argumentos CLI
-    if cli_args.fiat_filter and INTERNAL_FIAT_COLUMN in filtered_df.columns:
-        processed_fiat_filters: List[str] = [f.strip().upper() for f in cli_args.fiat_filter]
-        filtered_df = filtered_df.filter(
-            pl.col(INTERNAL_FIAT_COLUMN).str.to_uppercase().str.strip_chars().is_in(processed_fiat_filters)
         )
-        logger.info(f"Filtro por FIAT aplicado: {processed_fiat_filters}")
+    }
 
-    if cli_args.asset_filter and INTERNAL_ASSET_COLUMN in filtered_df.columns:
-        processed_asset_filters: List[str] = [a.strip().upper() for a in cli_args.asset_filter]
-        filtered_df = filtered_df.filter(
-            pl.col(INTERNAL_ASSET_COLUMN).str.to_uppercase().str.strip_chars().is_in(processed_asset_filters)
-        )
-        logger.info(f"Filtro por Asset aplicado: {processed_asset_filters}")
+    if column_rename_map:
+        df = df.rename(column_rename_map)
+        logger.info(f"Columnas renombradas: {column_rename_map}")
 
-    if cli_args.status_filter and INTERNAL_STATUS_COLUMN in filtered_df.columns:
-        processed_status_filters: List[str] = [
-            s.strip().capitalize() for s in cli_args.status_filter
-        ]
-        filtered_df = filtered_df.filter(
-            pl.col(INTERNAL_STATUS_COLUMN)
-            .str.to_titlecase()
-            .str.strip_chars()
-            .is_in(processed_status_filters)
-        )
-        logger.info(f"Filtro por Status aplicado: {processed_status_filters}")
+    return df
 
-    if cli_args.payment_method_filter and INTERNAL_PAYMENT_METHOD_COLUMN in filtered_df.columns:
-        filtered_df = filtered_df.filter(
-            pl.col(INTERNAL_PAYMENT_METHOD_COLUMN).is_in(cli_args.payment_method_filter)
+
+def _apply_fiat_filter(df: pl.DataFrame, fiat_filters: List[str]) -> pl.DataFrame:
+    """Aplica filtros de tipo FIAT al DataFrame.
+
+    Args:
+        df: DataFrame a filtrar
+        fiat_filters: Lista de tipos FIAT a incluir
+
+    Returns:
+        DataFrame filtrado
+    """
+    if not fiat_filters or INTERNAL_FIAT_COLUMN not in df.columns:
+        return df
+
+    processed_filters = [f.strip().upper() for f in fiat_filters]
+    filtered_df = df.filter(
+        pl.col(INTERNAL_FIAT_COLUMN)
+        .str.to_uppercase()
+        .str.strip_chars()
+        .is_in(processed_filters)
+    )
+    logger.info(f"Filtro por FIAT aplicado: {processed_filters}")
+    return filtered_df
+
+
+def _apply_asset_filter(df: pl.DataFrame, asset_filters: List[str]) -> pl.DataFrame:
+    """Aplica filtros de tipo Asset al DataFrame.
+
+    Args:
+        df: DataFrame a filtrar
+        asset_filters: Lista de tipos de asset a incluir
+
+    Returns:
+        DataFrame filtrado
+    """
+    if not asset_filters or INTERNAL_ASSET_COLUMN not in df.columns:
+        return df
+
+    processed_filters = [a.strip().upper() for a in asset_filters]
+    filtered_df = df.filter(
+        pl.col(INTERNAL_ASSET_COLUMN)
+        .str.to_uppercase()
+        .str.strip_chars()
+        .is_in(processed_filters)
+    )
+    logger.info(f"Filtro por Asset aplicado: {processed_filters}")
+    return filtered_df
+
+
+def _apply_status_filter(df: pl.DataFrame, status_filters: List[str]) -> pl.DataFrame:
+    """Aplica filtros de estado al DataFrame.
+
+    Args:
+        df: DataFrame a filtrar
+        status_filters: Lista de estados a incluir
+
+    Returns:
+        DataFrame filtrado
+    """
+    if not status_filters or INTERNAL_STATUS_COLUMN not in df.columns:
+        return df
+
+    processed_filters = [s.strip().capitalize() for s in status_filters]
+    filtered_df = df.filter(
+        pl.col(INTERNAL_STATUS_COLUMN)
+        .str.to_titlecase()
+        .str.strip_chars()
+        .is_in(processed_filters)
+    )
+    logger.info(f"Filtro por Status aplicado: {processed_filters}")
+    return filtered_df
+
+
+def _apply_payment_method_filter(
+    df: pl.DataFrame, payment_method_filters: List[str]
+) -> pl.DataFrame:
+    """Aplica filtros de método de pago al DataFrame.
+
+    Args:
+        df: DataFrame a filtrar
+        payment_method_filters: Lista de métodos de pago a incluir
+
+    Returns:
+        DataFrame filtrado
+    """
+    if not payment_method_filters or INTERNAL_PAYMENT_METHOD_COLUMN not in df.columns:
+        return df
+
+    filtered_df = df.filter(
+        pl.col(INTERNAL_PAYMENT_METHOD_COLUMN).is_in(payment_method_filters)
+    )
+    logger.info(f"Filtro por Payment Method aplicado: {payment_method_filters}")
+    return filtered_df
+
+
+def _apply_month_filter(
+    df: pl.DataFrame, month_number: int, month_name: str
+) -> pl.DataFrame:
+    """Aplica filtro de mes específico al DataFrame.
+
+    Args:
+        df: DataFrame a filtrar
+        month_number: Número del mes (1-12)
+        month_name: Nombre del mes para logging
+
+    Returns:
+        DataFrame filtrado por el mes especificado
+    """
+    if "Match_time_local" not in df.columns:
+        logger.warning(
+            f"Columna 'Match_time_local' no encontrada. "
+            f"No se puede aplicar filtro de mes {month_name}."
         )
-        logger.info(f"Filtro por Payment Method aplicado: {cli_args.payment_method_filter}")
+        return df
+
+    # Filtrar por mes usando la columna de fecha local
+    filtered_df = df.filter(pl.col("Match_time_local").dt.month() == month_number)
 
     if filtered_df.is_empty():
         logger.warning(
-            "El DataFrame está vacío después de aplicar los filtros CLI. No se generarán resultados."
+            f"No se encontraron datos para el mes {month_name} ({month_number}). "
+            "El DataFrame resultante está vacío."
         )
-        return None # DataFrame vacío después de filtros, no continuar.
+    else:
+        logger.info(
+            f"Filtro de mes aplicado: {month_name}. "
+            f"Datos filtrados: {filtered_df.shape[0]} filas "
+            f"(de {df.shape[0]} originales)."
+        )
 
-    logger.info(f"Carga y filtrado inicial completados. DataFrame resultante con {filtered_df.shape[0]} filas.")
+    return filtered_df
+
+
+def _load_and_preprocess_input_data(
+    cli_args: argparse.Namespace, column_map_config: Dict[str, str]
+) -> Optional[pl.DataFrame]:
+    """Carga datos CSV, renombra columnas y aplica filtros CLI.
+
+    Esta función encapsula toda la lógica de carga, mapeo de columnas y filtrado
+    inicial basado en los argumentos de línea de comandos.
+
+    Args:
+        cli_args: Argumentos parseados de CLI con path CSV y filtros
+        column_map_config: Mapeo de nombres de columnas del CSV a nombres internos
+
+    Returns:
+        DataFrame procesado y filtrado, o None si hay errores críticos o
+        el DataFrame resultante está vacío tras aplicar filtros
+
+    Raises:
+        Los errores específicos se capturan y se registran, retornando None
+        en caso de fallos críticos
+    """
+    logger.info(f"Iniciando carga de datos desde CSV: {cli_args.csv}")
+
+    try:
+        # Carga del CSV con esquema personalizado
+        raw_df = _load_csv_with_schema_override(cli_args.csv, column_map_config)
+
+        # Renombrado de columnas según configuración
+        raw_df = _rename_columns_from_config(raw_df, column_map_config)
+
+    except FileNotFoundError:
+        logger.error(
+            f"Error crítico: Archivo CSV no encontrado en ruta: {cli_args.csv}"
+        )
+        return None
+    except polars.exceptions.NoDataError:
+        logger.error(
+            f"Error crítico: El archivo CSV '{cli_args.csv}' está vacío "
+            "o no contiene datos legibles."
+        )
+        return None
+    except polars.exceptions.SchemaError as e_schema:
+        logger.error(
+            f"Error crítico de esquema en CSV '{cli_args.csv}'. "
+            f"Verifique columnas y tipos: {e_schema}"
+        )
+        return None
+    except polars.exceptions.ComputeError as e_compute:
+        logger.error(
+            f"Error crítico de Polars durante carga/renombrado "
+            f"del CSV '{cli_args.csv}': {e_compute}"
+        )
+        return None
+    except Exception as e_general:
+        logger.exception(
+            f"Error inesperado al procesar CSV '{cli_args.csv}': {e_general}"
+        )
+        return None
+
+    # Aplicación de filtros CLI sin modificar el DataFrame original
+    filtered_df = raw_df.clone()
+
+    # Aplicar cada filtro en secuencia
+    filtered_df = _apply_fiat_filter(filtered_df, cli_args.fiat_filter or [])
+    filtered_df = _apply_asset_filter(filtered_df, cli_args.asset_filter or [])
+    filtered_df = _apply_status_filter(filtered_df, cli_args.status_filter or [])
+    filtered_df = _apply_payment_method_filter(
+        filtered_df, cli_args.payment_method_filter or []
+    )
+
+    if filtered_df.is_empty():
+        logger.warning(
+            "El DataFrame está vacío después de aplicar filtros CLI. "
+            "No se generarán resultados."
+        )
+        return None
+
+    logger.info(
+        f"Carga y filtrado completados. DataFrame resultante: "
+        f"{filtered_df.shape[0]} filas."
+    )
     return filtered_df
 
 
 def main() -> None:
+    """Punto de entrada principal para la aplicación CLI de análisis P2P.
+
+    Orquesta el flujo completo de la aplicación:
+    1. Inicialización y parseo de argumentos CLI
+    2. Carga de configuración
+    3. Carga y pre-procesamiento de datos CSV
+    4. Aplicación de filtros CLI (excepto mes)
+    5. Ejecución del análisis base con analyze()
+    6. Aplicación del filtro de mes (si se especifica)
+    7. Ejecución del pipeline de análisis completo
+    8. Reporte de finalización con ruta de resultados
+
+    Raises:
+        SystemExit: Con código 1 si hay errores críticos de carga/filtrado,
+                   con código 0 si el DataFrame queda vacío post-análisis
     """
-    Punto de entrada principal para la aplicación CLI de análisis P2P.
+    # Inicialización y parseo de argumentos
+    args, cli_filename_suffix, cli_report_title_suffix = initialize_analysis()
 
-    Orquesta la carga de datos, pre-procesamiento, aplicación de filtros CLI,
-    y la ejecución del pipeline de análisis.
-    """
-    args: argparse.Namespace
-    cli_filename_suffix: str
-    cli_report_title_suffix: str
-    (args, cli_filename_suffix, cli_report_title_suffix) = initialize_analysis()
+    # Carga de configuración centralizada
+    config = load_config()
+    column_map_config = config.get("column_mapping", {})
+    sell_operation_config = config.get("sell_operation", {})
 
-    config: Dict[str, Any] = load_config()
-    column_map_config: Dict[str, str] = config.get("column_mapping", {})
-    sell_operation_config: Dict[str, Any] = config.get("sell_operation", {})
-
-    # Carga, renombrado y filtrado inicial de datos
-    cli_filtered_df: Optional[pl.DataFrame] = _load_and_filter_data(args, column_map_config)
+    # Carga y pre-procesamiento de datos con filtros CLI (excepto mes)
+    cli_filtered_df = _load_and_preprocess_input_data(args, column_map_config)
 
     if cli_filtered_df is None:
-        logger.error("Proceso terminado debido a errores en la carga o DataFrame vacío post-filtros CLI.")
-        exit(1) # Usar exit(1) si la carga/filtrado falla y es crítico
+        logger.error(
+            "Proceso terminado: errores en carga o DataFrame vacío post-filtros."
+        )
+        exit(1)
 
-    logger.info(
-        "Iniciando pre-procesamiento del DataFrame (post-filtros CLI) para generar columnas base (ej. 'Year')."
-    )
+    logger.info("Iniciando pre-procesamiento con analyze() para generar columnas base.")
 
-    base_processed_df: pl.DataFrame
+    # Pre-procesamiento base mediante analyze() para generar columnas de tiempo
     analyze_output: Tuple[pl.DataFrame, Optional[Any]] = analyze(
-        cli_filtered_df.clone(), # .clone() aquí es importante si analyze modifica el DF y necesitamos el original filtrado después
-        column_map_config, # Pasar column_map_config en lugar de column_map (que ya no existe en este scope)
+        cli_filtered_df.clone(),
+        column_map_config,
         sell_operation_config,
         cli_args=vars(args),
     )
@@ -184,12 +374,32 @@ def main() -> None:
 
     if base_processed_df.is_empty():
         logger.warning(
-            "El DataFrame está vacío después del pre-procesamiento inicial con 'analyze' (post-filtros CLI)."
-            " No se generarán resultados."
+            "DataFrame vacío después de pre-procesamiento con analyze(). "
+            "No se generarán resultados."
         )
-        exit(0) # Salida controlada, DataFrame vacío post-analyze puede no ser un error crítico.
+        exit(0)
 
-    logger.info("Pre-procesamiento base completado. Iniciando pipeline de análisis principal...")
+    # Aplicar filtro de mes DESPUÉS de que analyze() genere las columnas de tiempo
+    if hasattr(args, "month_number") and args.month_number is not None:
+        logger.info(f"Aplicando filtro de mes: {args.month_name_display}")
+        base_processed_df = _apply_month_filter(
+            base_processed_df, args.month_number, args.month_name_display
+        )
+
+        if base_processed_df.is_empty():
+            logger.warning(
+                f"DataFrame vacío después de filtrar por mes {args.month_name_display}. "
+                "No se generarán resultados."
+            )
+            exit(0)
+
+        logger.info(
+            f"Filtro de mes aplicado exitosamente. Filas resultantes: {base_processed_df.shape[0]}"
+        )
+
+    logger.info("Pre-procesamiento completado. Iniciando pipeline principal...")
+
+    # Ejecución del pipeline de análisis completo
     run_analysis_pipeline(
         df_master_processed=base_processed_df,
         args=args,
@@ -198,8 +408,12 @@ def main() -> None:
         base_title_suffix=cli_report_title_suffix,
     )
 
-    output_path: str = os.path.abspath(args.out)
-    logger.info(f"✅ Todos los análisis completados. Resultados generados en: {output_path}")
+    # Reporte de finalización exitosa
+    output_path = os.path.abspath(args.out)
+    logger.info(
+        f"✅ Análisis completado exitosamente. " f"Resultados en: {output_path}"
+    )
+
 
 if __name__ == "__main__":
     main()
