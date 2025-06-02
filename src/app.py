@@ -1,118 +1,205 @@
 #!/usr/bin/env python3
-"""Análisis integral de operaciones P2P (Versión Profesional Avanzada).
+"""Punto de entrada CLI y orquestador principal para el análisis de operaciones P2P.
 
-Ejemplo:
-    python src/analisis_profesional_p2p.py --csv data/p2p.csv --out output_profesional
+Este script maneja la carga de datos desde un archivo CSV, aplica filtros iniciales
+basados en argumentos de línea de comandos, realiza un pre-procesamiento básico
+(como la generación de columnas de fecha) y luego invoca el pipeline de análisis detallado.
+
+Ejemplo de uso:
+    python src/app.py --csv data/p2p.csv --out output_directorio
 """
 from __future__ import annotations
+
 import argparse
-import os
-import textwrap
-import polars as pl
-import pytz
 import logging
-import datetime
-from jinja2 import Environment, FileSystemLoader
-import pandas as pd
-import sys
+import os
+from typing import Any, Dict, List, Optional, Tuple
 
-from .config_loader import load_config, setup_logging
+import polars as pl
+import polars.exceptions
+
+from .analyzer import analyze
+from .config_loader import load_config
 from .main_logic import initialize_analysis, run_analysis_pipeline
-from .utils import parse_amount # Asegurarse que utils.py está en src/
-from .analyzer import analyze # analyze se llama desde main_logic Y TAMBIÉN AQUÍ para pre-procesar
-from . import plotting # plotting.py está en src/
 
-# --- Configuración de Logging Básico ---
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# --- Configuración de Logging ---
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
-# --- Funciones Auxiliares (Helpers) ---
+# --- Constantes de Nombres de Columnas Internas ---
+# Estos nombres se usan después del mapeo inicial desde el CSV y para filtros.
+INTERNAL_FIAT_COLUMN = "fiat_type"
+INTERNAL_ASSET_COLUMN = "asset_type"
+INTERNAL_STATUS_COLUMN = "status"
+INTERNAL_PAYMENT_METHOD_COLUMN = "payment_method"
 
-# --- Funciones de Análisis Principal (A REFACATORIZAR) ---
 
-# --- Lógica Principal (CLI) ---
-def main():
-    args, clean_filename_suffix_cli, analysis_title_suffix_cli = initialize_analysis()
+def _load_and_filter_data(
+    cli_args: argparse.Namespace, column_map_config: Dict[str, str]
+) -> Optional[pl.DataFrame]:
+    """
+    Carga los datos desde el archivo CSV especificado, renombra columnas según la configuración,
+    y aplica filtros basados en los argumentos CLI.
 
-    config = load_config()
-    col_map = config.get('column_mapping', {})
-    sell_config = config.get('sell_operation', {})
+    Args:
+        cli_args: Argumentos parseados de la línea de comandos, incluyendo la ruta al CSV.
+        column_map_config: Mapeo de nombres de columnas del CSV a nombres internos.
 
-    logger.info(f"Cargando datos desde: {args.csv}")
+    Returns:
+        Un DataFrame de Polars con los datos cargados y filtrados, o None si ocurre un error
+        o si el DataFrame resultante de los filtros está vacío.
+    """
+    logger.info(f"Iniciando carga de datos desde el archivo CSV: {cli_args.csv}")
     try:
-        order_number_csv_col = col_map.get('order_number', "Order Number")
-        adv_order_number_csv_col = col_map.get('adv_order_number', "Advertisement Order Number")
-            
-        column_types_to_override = {
-            order_number_csv_col: pl.String,
-            adv_order_number_csv_col: pl.String 
-        }
-        
-        df_raw = pl.read_csv(
-            args.csv, 
-            infer_schema_length=10000, 
-            null_values=["", "NA", "N/A", "NaN", "null"],
-            schema_overrides=column_types_to_override
+        csv_order_number_col: str = column_map_config.get("order_number", "Order Number")
+        csv_adv_order_number_col: str = column_map_config.get(
+            "adv_order_number", "Advertisement Order Number"
         )
-        logger.info(f"Datos cargados: {df_raw.shape[0]} filas, {df_raw.shape[1]} columnas desde CSV.")
 
-        rename_dict = {csv_col_name: script_col_name 
-                       for script_col_name, csv_col_name in col_map.items() 
-                       if csv_col_name and csv_col_name in df_raw.columns and csv_col_name != script_col_name}
-        if rename_dict:
-            df_raw = df_raw.rename(rename_dict)
-            logger.info(f"Columnas renombradas según config: {rename_dict}")
-        
-    except Exception as e:
-        logger.error(f"Error al leer o renombrar inicialmente el archivo CSV con Polars: {e}")
-        exit(1)
-    
-    df_cli_filtered = df_raw.clone()
-    fiat_type_internal_col = 'fiat_type' 
-    asset_type_internal_col = 'asset_type' 
-    status_internal_col = 'status'
-    payment_method_internal_col = 'payment_method'
+        csv_column_types_override: Dict[str, pl.DataType] = {
+            csv_order_number_col: pl.String,
+            csv_adv_order_number_col: pl.String,
+        }
 
-    if args.fiat_filter and fiat_type_internal_col in df_cli_filtered.columns:
-        processed_fiats = [f.strip().upper() for f in args.fiat_filter]
-        df_cli_filtered = df_cli_filtered.filter(pl.col(fiat_type_internal_col).str.to_uppercase().str.strip().is_in(processed_fiats))
-    if args.asset_filter and asset_type_internal_col in df_cli_filtered.columns:
-        processed_assets = [a.strip().upper() for a in args.asset_filter]
-        df_cli_filtered = df_cli_filtered.filter(pl.col(asset_type_internal_col).str.to_uppercase().str.strip().is_in(processed_assets))
-    if args.status_filter and status_internal_col in df_cli_filtered.columns:
-        processed_status_cli_arg = [s.strip().capitalize() for s in args.status_filter]
-        df_cli_filtered = df_cli_filtered.filter(pl.col(status_internal_col).str.to_capitalized().str.strip().is_in(processed_status_cli_arg))
-    if args.payment_method_filter and payment_method_internal_col in df_cli_filtered.columns:
-        df_cli_filtered = df_cli_filtered.filter(pl.col(payment_method_internal_col).is_in(args.payment_method_filter))
+        raw_df: pl.DataFrame = pl.read_csv(
+            source=cli_args.csv,
+            infer_schema_length=10000,
+            null_values=["", "NA", "N/A", "NaN", "null"],
+            schema_overrides=csv_column_types_override,
+        )
+        logger.info(
+            f"Datos cargados exitosamente: {raw_df.shape[0]} filas, {raw_df.shape[1]} columnas."
+        )
 
-    if df_cli_filtered.is_empty():
-        print("El DataFrame está vacío después de aplicar los filtros CLI. No se generarán resultados.")
-        exit(0)
+        column_rename_map: Dict[str, str] = {
+            csv_col_name: script_col_name
+            for script_col_name, csv_col_name in column_map_config.items()
+            if csv_col_name
+            and csv_col_name in raw_df.columns
+            and csv_col_name != script_col_name
+        }
+        if column_rename_map:
+            raw_df = raw_df.rename(column_rename_map)
+            logger.info(f"Columnas renombradas según configuración: {column_rename_map}")
 
-    logger.info("\n=== Pre-procesando DataFrame base con Polars (después de filtros CLI) para generar columnas base ===")
-    # Esta llamada es crucial para que df_master_processed tenga columnas como 'Year'
-    # generadas por analyze, antes de pasarlo a run_analysis_pipeline.
-    df_master_processed, _ = analyze(
-        df_cli_filtered.clone(), # Usar una copia para no modificar df_cli_filtered si se usa después
-        col_map, 
-        sell_config, 
-        cli_args=vars(args) # analyze espera cli_args como un dict
+    except FileNotFoundError:
+        logger.error(f"Error crítico: El archivo CSV no se encontró en la ruta especificada: {cli_args.csv}")
+        return None
+    except polars.exceptions.NoDataError:
+        logger.error(f"Error crítico: El archivo CSV '{cli_args.csv}' está vacío o no contiene datos legibles.")
+        return None
+    except polars.exceptions.SchemaError as e_schema:
+        logger.error(f"Error crítico de esquema al leer el CSV '{cli_args.csv}'. Verifique las columnas y tipos: {e_schema}")
+        return None
+    except polars.exceptions.ComputeError as e_compute:
+        logger.error(f"Error crítico de Polars durante la carga o renombrado inicial del CSV '{cli_args.csv}': {e_compute}")
+        return None
+    except Exception as e_general: # Captura más genérica para problemas inesperados durante carga/renombrado
+        logger.exception(f"Error inesperado y crítico al procesar el archivo CSV '{cli_args.csv}': {e_general}")
+        return None
+
+    # Clonar para aplicar filtros sin modificar el DataFrame original cargado (raw_df)
+    filtered_df: pl.DataFrame = raw_df.clone()
+
+    # Aplicación de filtros basados en argumentos CLI
+    if cli_args.fiat_filter and INTERNAL_FIAT_COLUMN in filtered_df.columns:
+        processed_fiat_filters: List[str] = [f.strip().upper() for f in cli_args.fiat_filter]
+        filtered_df = filtered_df.filter(
+            pl.col(INTERNAL_FIAT_COLUMN).str.to_uppercase().str.strip_chars().is_in(processed_fiat_filters)
+        )
+        logger.info(f"Filtro por FIAT aplicado: {processed_fiat_filters}")
+
+    if cli_args.asset_filter and INTERNAL_ASSET_COLUMN in filtered_df.columns:
+        processed_asset_filters: List[str] = [a.strip().upper() for a in cli_args.asset_filter]
+        filtered_df = filtered_df.filter(
+            pl.col(INTERNAL_ASSET_COLUMN).str.to_uppercase().str.strip_chars().is_in(processed_asset_filters)
+        )
+        logger.info(f"Filtro por Asset aplicado: {processed_asset_filters}")
+
+    if cli_args.status_filter and INTERNAL_STATUS_COLUMN in filtered_df.columns:
+        processed_status_filters: List[str] = [
+            s.strip().capitalize() for s in cli_args.status_filter
+        ]
+        filtered_df = filtered_df.filter(
+            pl.col(INTERNAL_STATUS_COLUMN)
+            .str.to_titlecase()
+            .str.strip_chars()
+            .is_in(processed_status_filters)
+        )
+        logger.info(f"Filtro por Status aplicado: {processed_status_filters}")
+
+    if cli_args.payment_method_filter and INTERNAL_PAYMENT_METHOD_COLUMN in filtered_df.columns:
+        filtered_df = filtered_df.filter(
+            pl.col(INTERNAL_PAYMENT_METHOD_COLUMN).is_in(cli_args.payment_method_filter)
+        )
+        logger.info(f"Filtro por Payment Method aplicado: {cli_args.payment_method_filter}")
+
+    if filtered_df.is_empty():
+        logger.warning(
+            "El DataFrame está vacío después de aplicar los filtros CLI. No se generarán resultados."
+        )
+        return None # DataFrame vacío después de filtros, no continuar.
+
+    logger.info(f"Carga y filtrado inicial completados. DataFrame resultante con {filtered_df.shape[0]} filas.")
+    return filtered_df
+
+
+def main() -> None:
+    """
+    Punto de entrada principal para la aplicación CLI de análisis P2P.
+
+    Orquesta la carga de datos, pre-procesamiento, aplicación de filtros CLI,
+    y la ejecución del pipeline de análisis.
+    """
+    args: argparse.Namespace
+    cli_filename_suffix: str
+    cli_report_title_suffix: str
+    (args, cli_filename_suffix, cli_report_title_suffix) = initialize_analysis()
+
+    config: Dict[str, Any] = load_config()
+    column_map_config: Dict[str, str] = config.get("column_mapping", {})
+    sell_operation_config: Dict[str, Any] = config.get("sell_operation", {})
+
+    # Carga, renombrado y filtrado inicial de datos
+    cli_filtered_df: Optional[pl.DataFrame] = _load_and_filter_data(args, column_map_config)
+
+    if cli_filtered_df is None:
+        logger.error("Proceso terminado debido a errores en la carga o DataFrame vacío post-filtros CLI.")
+        exit(1) # Usar exit(1) si la carga/filtrado falla y es crítico
+
+    logger.info(
+        "Iniciando pre-procesamiento del DataFrame (post-filtros CLI) para generar columnas base (ej. 'Year')."
     )
 
-    if df_master_processed.is_empty():
-        print("DataFrame vacío después del pre-procesamiento inicial con 'analyze' (post-CLI filters). No se generarán resultados.")
-        exit(0)
+    base_processed_df: pl.DataFrame
+    analyze_output: Tuple[pl.DataFrame, Optional[Any]] = analyze(
+        cli_filtered_df.clone(), # .clone() aquí es importante si analyze modifica el DF y necesitamos el original filtrado después
+        column_map_config, # Pasar column_map_config en lugar de column_map (que ya no existe en este scope)
+        sell_operation_config,
+        cli_args=vars(args),
+    )
+    base_processed_df = analyze_output[0]
 
-    # Llamar a run_analysis_pipeline con el df_master_processed
+    if base_processed_df.is_empty():
+        logger.warning(
+            "El DataFrame está vacío después del pre-procesamiento inicial con 'analyze' (post-filtros CLI)."
+            " No se generarán resultados."
+        )
+        exit(0) # Salida controlada, DataFrame vacío post-analyze puede no ser un error crítico.
+
+    logger.info("Pre-procesamiento base completado. Iniciando pipeline de análisis principal...")
     run_analysis_pipeline(
-        df_master_processed=df_master_processed, # DataFrame ya pre-procesado con columnas como 'Year'
+        df_master_processed=base_processed_df,
         args=args,
         config=config,
-        base_file_suffix=clean_filename_suffix_cli, # Nombre de argumento actualizado
-        base_title_suffix=analysis_title_suffix_cli  # Nombre de argumento actualizado
+        base_file_suffix=cli_filename_suffix,
+        base_title_suffix=cli_report_title_suffix,
     )
 
-    print(f"\n\u2705 Todos los análisis completados. Resultados en: {os.path.abspath(args.out)}")
+    output_path: str = os.path.abspath(args.out)
+    logger.info(f"✅ Todos los análisis completados. Resultados generados en: {output_path}")
 
 if __name__ == "__main__":
     main()
