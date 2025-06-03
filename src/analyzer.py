@@ -177,29 +177,47 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
     try:
         # Llamada a la función principal de análisis de contrapartes del módulo
         # Esta función ahora encapsula toda la lógica, incluyendo los joins internos.
-        counterparty_final_metrics_df = counterparty_analyzer.analyze_counterparties(
+        # ESTO AHORA DEVUELVE UN DICCIONARIO
+        all_counterparty_metrics_dict = counterparty_analyzer.analyze_counterparties(
             df_processed 
         ) 
         
-        if counterparty_final_metrics_df is not None and not counterparty_final_metrics_df.is_empty():
-            logger.info(f"[analyzer.py:analyze] Métricas de contrapartes CONSOLIDADAS RECIBIDAS. Schema: {counterparty_final_metrics_df.schema}, Altura: {counterparty_final_metrics_df.height}")
-            metrics['counterparty_consolidated_stats'] = counterparty_final_metrics_df
+        if all_counterparty_metrics_dict: # Si el diccionario no está vacío
+            logger.info(f"[analyzer.py:analyze] Diccionario de métricas de contrapartes RECIBIDO. Claves: {list(all_counterparty_metrics_dict.keys())}")
+            expected_cp_keys_for_plotting = ['general_stats', 'temporal_evolution', 'payment_preferences', 'trading_patterns', 'vip_counterparties', 'efficiency_stats']
+            for metric_key, metric_df in all_counterparty_metrics_dict.items():
+                if metric_df is not None and not metric_df.is_empty():
+                    # Usar el prefijo 'counterparty_' para que src/reporter.py lo encuentre
+                    metrics[f'counterparty_{metric_key}'] = metric_df 
+                    logger.info(f"  Métrica de contraparte '{metric_key}' (DataFrame Polars) añadida a 'metrics' con clave 'counterparty_{metric_key}'. Altura: {metric_df.height}")
+                else:
+                    logger.warning(f"  Métrica de contraparte '{metric_key}' devuelta por el analizador está vacía o es None. Se añadirá como DataFrame vacío con clave 'counterparty_{metric_key}'.")
+                    metrics[f'counterparty_{metric_key}'] = pl.DataFrame() # Asegurar que la clave exista
+            
+            # Asegurar que todas las claves esperadas por el plotter existan en metrics, incluso si no vinieron del analizador
+            for key in expected_cp_keys_for_plotting:
+                if f'counterparty_{key}' not in metrics:
+                    logger.warning(f"  Métrica de contraparte esperada '{key}' no fue devuelta por el analizador. Se crea entrada vacía 'counterparty_{key}'.")
+                    metrics[f'counterparty_{key}'] = pl.DataFrame()
         else:
-            logger.warning(f"[analyzer.py:analyze] No se generaron métricas consolidadas de contrapartes o el DF está vacío.")
-            metrics['counterparty_consolidated_stats'] = pl.DataFrame() # Asegurar que la clave exista
+            logger.warning(f"[analyzer.py:analyze] No se generaron métricas de contrapartes (el diccionario devuelto está vacío o es None).")
+            # Crear entradas vacías para todas las claves esperadas
+            expected_cp_keys_for_plotting = ['general_stats', 'temporal_evolution', 'payment_preferences', 'trading_patterns', 'vip_counterparties', 'efficiency_stats']
+            for key in expected_cp_keys_for_plotting:
+                 logger.warning(f"  Creando entrada vacía para métrica de contraparte esperada: 'counterparty_{key}'.")
+                 metrics[f'counterparty_{key}'] = pl.DataFrame()
         
-        logger.info(f"[analyzer.py:analyze] Claves en 'metrics' DESPUÉS del análisis de contrapartes: {list(metrics.keys())}")
-        if 'counterparty_consolidated_stats' in metrics and isinstance(metrics['counterparty_consolidated_stats'], pl.DataFrame):
-            logger.info(f"[analyzer.py:analyze] 'counterparty_consolidated_stats' en 'metrics' es DataFrame Polars con altura: {metrics['counterparty_consolidated_stats'].height}")
-        elif 'counterparty_consolidated_stats' in metrics:
-             logger.warning(f"[analyzer.py:analyze] 'counterparty_consolidated_stats' en 'metrics' ES {type(metrics['counterparty_consolidated_stats'])} y no pl.DataFrame.")
-        else:
-            logger.warning(f"[analyzer.py:analyze] 'counterparty_consolidated_stats' NO ESTÁ en 'metrics'.")
+        logger.info(f"[analyzer.py:analyze] Claves en 'metrics' DESPUÉS del procesamiento de contrapartes: {list(metrics.keys())}")
 
     except Exception as e:
-        logger.error(f"[analyzer.py:analyze] Error principal en el bloque de análisis de contrapartes (llamada a counterparty_analyzer.analyze_counterparties): {e}")
+        logger.error(f"[analyzer.py:analyze] Error principal en el bloque de análisis de contrapartes: {e}")
         logger.error(f"Tipo de error: {type(e)}")
-        metrics['counterparty_consolidated_stats'] = pl.DataFrame() # Registrar DF vacío en caso de error
+        # Asegurar que las claves esperadas existan como DFs vacíos en caso de error grave
+        expected_cp_keys_for_plotting = ['general_stats', 'temporal_evolution', 'payment_preferences', 'trading_patterns', 'vip_counterparties', 'efficiency_stats']
+        for key in expected_cp_keys_for_plotting:
+             if f'counterparty_{key}' not in metrics: # Solo añadir si no existe ya
+                logger.error(f"  Creando entrada vacía de emergencia para métrica de contraparte: 'counterparty_{key}'.")
+                metrics[f'counterparty_{key}'] = pl.DataFrame()
 
     # --- NUEVO: Análisis de Sesiones de Trading ---
     logger.info("Iniciando análisis avanzado de sesiones de trading...")

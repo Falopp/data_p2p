@@ -2,11 +2,11 @@ import polars as pl
 import logging
 import numpy as np
 from datetime import datetime, timedelta
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Union
 
 logger = logging.getLogger(__name__)
 
-def analyze_counterparties(df: pl.DataFrame) -> pl.DataFrame:
+def analyze_counterparties(df: pl.DataFrame) -> Dict[str, Union[pl.DataFrame, Any]]:
     """
     Análisis completo de comportamiento de contrapartes.
     
@@ -14,7 +14,8 @@ def analyze_counterparties(df: pl.DataFrame) -> pl.DataFrame:
         df: DataFrame con operaciones P2P procesadas
         
     Returns:
-        DataFrame consolidado con todas las métricas de contrapartes
+        Un diccionario donde las claves son nombres de métricas (ej. 'general_stats') 
+        y los valores son los DataFrames de Polars correspondientes.
     """
     logger.info("Iniciando análisis de contrapartes...")
     
@@ -25,11 +26,11 @@ def analyze_counterparties(df: pl.DataFrame) -> pl.DataFrame:
     
     if missing_cols:
         logger.warning(f"Faltan columnas para análisis de contrapartes: {missing_cols}")
-        return pl.DataFrame()
+        return {}
     
     if df.is_empty():
         logger.warning("DataFrame vacío para análisis de contrapartes")
-        return pl.DataFrame()
+        return {}
     
     # Filtrar solo contrapartes válidas (no vacías)
     df_filtered = df.filter(
@@ -40,7 +41,7 @@ def analyze_counterparties(df: pl.DataFrame) -> pl.DataFrame:
     
     if df_filtered.is_empty():
         logger.warning("No hay contrapartes válidas para analizar")
-        return pl.DataFrame()
+        return {}
     
     logger.info(f"Analizando {df_filtered.height} operaciones con contrapartes válidas de {df.height} operaciones totales")
     
@@ -77,21 +78,21 @@ def analyze_counterparties(df: pl.DataFrame) -> pl.DataFrame:
     # y podría complicar el join directo. Considerar cómo integrarla o si debe permanecer separada.
     # Por ahora, la excluiremos del join automático.
 
-    logger.info("Análisis de sub-métricas de contrapartes completado. Iniciando consolidación final...")
+    # logger.info("Análisis de sub-métricas de contrapartes completado. Iniciando consolidación final...") # Comentado
 
     # Consolidar todas las métricas en un único DataFrame
-    final_consolidated_df = None
+    # final_consolidated_df = None # Comentado
     
     # Lista de DataFrames a unir. Empezamos con el primero que no sea None y no esté vacío.
     # El orden puede importar si hay colisiones de nombres (aunque se deberían renombrar antes si es necesario).
     # Orden preferido: general_stats, trading_patterns, vip_counterparties, efficiency_stats
     
-    metric_keys_for_join = [
-        'general_stats', 
-        'trading_patterns', # trading_patterns ya debería tener 'Counterparty'
-        'vip_counterparties', # vip_counterparties se basa en general_stats, debería tener 'Counterparty'
-        'efficiency_stats' # efficiency_stats agrupa por 'Counterparty'
-    ]
+    # metric_keys_for_join = [ # Comentado
+    #     'general_stats', # Comentado
+    #     'trading_patterns', # trading_patterns ya debería tener 'Counterparty' # Comentado
+    #     'vip_counterparties', # vip_counterparties se basa en general_stats, debería tener 'Counterparty' # Comentado
+    #     'efficiency_stats' # efficiency_stats agrupa por 'Counterparty' # Comentado
+    # ] # Comentado
 
     # # La métrica 'temporal_evolution' y 'payment_preferences' tienen granularidad diferente 
     # # (Counterparty, year_month) y (Counterparty, payment_method) respectivamente.
@@ -103,65 +104,65 @@ def analyze_counterparties(df: pl.DataFrame) -> pl.DataFrame:
     # output_data = {}
 
 
-    for i, key in enumerate(metric_keys_for_join):
-        df_to_join = counterparty_metrics.get(key)
+    # for i, key in enumerate(metric_keys_for_join): # Comentado
+    #     df_to_join = counterparty_metrics.get(key) # Comentado
         
-        if df_to_join is None or df_to_join.is_empty():
-            logger.warning(f"Métrica '{key}' está vacía o es None. Se omitirá del join consolidado.")
-            continue
+    #     if df_to_join is None or df_to_join.is_empty(): # Comentado
+    #         logger.warning(f"Métrica '{key}' está vacía o es None. Se omitirá del join consolidado.") # Comentado
+    #         continue # Comentado
 
-        if 'Counterparty' not in df_to_join.columns:
-            logger.error(f"Métrica '{key}' no tiene la columna 'Counterparty'. No se puede unir. Schema: {df_to_join.schema}")
-            continue
+    #     if 'Counterparty' not in df_to_join.columns: # Comentado
+    #         logger.error(f"Métrica '{key}' no tiene la columna 'Counterparty'. No se puede unir. Schema: {df_to_join.schema}") # Comentado
+    #         continue # Comentado
             
-        logger.info(f"Procesando para join: '{key}'. Schema: {df_to_join.schema}")
+    #     logger.info(f"Procesando para join: '{key}'. Schema: {df_to_join.schema}") # Comentado
 
-        if final_consolidated_df is None:
-            final_consolidated_df = df_to_join
-            logger.info(f"DataFrame inicial para consolidación: '{key}'. Schema: {final_consolidated_df.schema}")
-        else:
-            try:
-                logger.info(f"Intentando unir con '{key}'. Schema de final_consolidated_df ANTES: {final_consolidated_df.schema}. Schema de df_to_join ('{key}'): {df_to_join.schema}")
+    #     if final_consolidated_df is None: # Comentado
+    #         final_consolidated_df = df_to_join # Comentado
+    #         logger.info(f"DataFrame inicial para consolidación: '{key}'. Schema: {final_consolidated_df.schema}") # Comentado
+    #     else: # Comentado
+    #         try: # Comentado
+    #             logger.info(f"Intentando unir con '{key}'. Schema de final_consolidated_df ANTES: {final_consolidated_df.schema}. Schema de df_to_join ('{key}'): {df_to_join.schema}") # Comentado
                 
-                # Renombrar columnas duplicadas (excepto 'Counterparty') antes del join
-                cols_in_final = set(final_consolidated_df.columns)
-                cols_in_current = set(df_to_join.columns)
-                duplicate_cols = (cols_in_final & cols_in_current) - {'Counterparty'}
+    #             # Renombrar columnas duplicadas (excepto 'Counterparty') antes del join # Comentado
+    #             cols_in_final = set(final_consolidated_df.columns) # Comentado
+    #             cols_in_current = set(df_to_join.columns) # Comentado
+    #             duplicate_cols = (cols_in_final & cols_in_current) - {'Counterparty'} # Comentado
 
-                if duplicate_cols:
-                    logger.warning(f"Columnas duplicadas encontradas al intentar unir '{key}': {duplicate_cols}. Se renombrarán en '{key}'.")
-                    rename_mapping = {col: f"{col}_{key[:3]}" for col in duplicate_cols}
-                    df_to_join = df_to_join.rename(rename_mapping)
-                    logger.info(f"'{key}' renombrado. Nuevo schema: {df_to_join.schema}")
+    #             if duplicate_cols: # Comentado
+    #                 logger.warning(f"Columnas duplicadas encontradas al intentar unir '{key}': {duplicate_cols}. Se renombrarán en '{key}'.") # Comentado
+    #                 rename_mapping = {col: f"{col}_{key[:3]}" for col in duplicate_cols} # Comentado
+    #                 df_to_join = df_to_join.rename(rename_mapping) # Comentado
+    #                 logger.info(f"'{key}' renombrado. Nuevo schema: {df_to_join.schema}") # Comentado
 
-                final_consolidated_df = final_consolidated_df.join(
-                    df_to_join, 
-                    on='Counterparty', 
-                    how='outer' # Usar outer join para no perder contrapartes que puedan no estar en todas las métricas
-                )
-                logger.info(f"Unión con '{key}' exitosa. Schema de final_consolidated_df DESPUÉS: {final_consolidated_df.schema}")
+    #             final_consolidated_df = final_consolidated_df.join( # Comentado
+    #                 df_to_join, # Comentado
+    #                 on='Counterparty', # Comentado
+    #                 how='outer' # Usar outer join para no perder contrapartes que puedan no estar en todas las métricas # Comentado
+    #             ) # Comentado
+    #             logger.info(f"Unión con '{key}' exitosa. Schema de final_consolidated_df DESPUÉS: {final_consolidated_df.schema}") # Comentado
 
-                # >>> INICIO: Nueva lógica para manejar 'Counterparty_right'
-                if 'Counterparty_right' in final_consolidated_df.columns:
-                    logger.warning("Columna 'Counterparty_right' detectada después del join. Se eliminará, manteniendo la original 'Counterparty'.")
-                    # Primero, verificar si la columna original 'Counterparty' sigue siendo válida y no todos nulos si es posible
-                    # Esta verificación puede ser compleja, por ahora asumimos que 'Counterparty' es la correcta.
-                    final_consolidated_df = final_consolidated_df.drop('Counterparty_right')
-                    logger.info(f"Columna 'Counterparty_right' eliminada. Schema actual: {final_consolidated_df.schema}")
-                # <<< FIN: Nueva lógica para manejar 'Counterparty_right'
+    #             # >>> INICIO: Nueva lógica para manejar 'Counterparty_right' # Comentado
+    #             if 'Counterparty_right' in final_consolidated_df.columns: # Comentado
+    #                 logger.warning("Columna 'Counterparty_right' detectada después del join. Se eliminará, manteniendo la original 'Counterparty'.") # Comentado
+    #                 # Primero, verificar si la columna original 'Counterparty' sigue siendo válida y no todos nulos si es posible # Comentado
+    #                 # Esta verificación puede ser compleja, por ahora asumimos que 'Counterparty' es la correcta. # Comentado
+    #                 final_consolidated_df = final_consolidated_df.drop('Counterparty_right') # Comentado
+    #                 logger.info(f"Columna 'Counterparty_right' eliminada. Schema actual: {final_consolidated_df.schema}") # Comentado
+    #             # <<< FIN: Nueva lógica para manejar 'Counterparty_right' # Comentado
 
-            except Exception as e_join:
-                logger.error(f"Error al unir la métrica '{key}' al DataFrame consolidado: {e_join}")
-                logger.error(f"Schema de final_consolidated_df: {final_consolidated_df.schema}")
-                logger.error(f"Schema de df_to_join ('{key}'): {df_to_join.schema}")
-                # Podríamos decidir continuar sin esta métrica o detenernos. Por ahora, continuamos.
-                pass
+    #         except Exception as e_join: # Comentado
+    #             logger.error(f"Error al unir la métrica '{key}' al DataFrame consolidado: {e_join}") # Comentado
+    #             logger.error(f"Schema de final_consolidated_df: {final_consolidated_df.schema}") # Comentado
+    #             logger.error(f"Schema de df_to_join ('{key}'): {df_to_join.schema}") # Comentado
+    #             # Podríamos decidir continuar sin esta métrica o detenernos. Por ahora, continuamos. # Comentado
+    #             pass # Comentado
                 
-    if final_consolidated_df is not None:
-        logger.info(f"Consolidación final de métricas de contrapartes completada. Schema final: {final_consolidated_df.schema}. Altura: {final_consolidated_df.height}")
-    else:
-        logger.warning("El DataFrame consolidado final de contrapartes está vacío o es None.")
-        final_consolidated_df = pl.DataFrame() # Devolver un DF vacío si nada se pudo consolidar
+    # if final_consolidated_df is not None: # Comentado
+    #     logger.info(f"Consolidación final de métricas de contrapartes completada. Schema final: {final_consolidated_df.schema}. Altura: {final_consolidated_df.height}") # Comentado
+    # else: # Comentado
+    #     logger.warning("El DataFrame consolidado final de contrapartes está vacío o es None.") # Comentado
+    #     final_consolidated_df = pl.DataFrame() # Devolver un DF vacío si nada se pudo consolidar # Comentado
 
     # output_data['consolidated_metrics'] = final_consolidated_df
     
@@ -174,7 +175,10 @@ def analyze_counterparties(df: pl.DataFrame) -> pl.DataFrame:
     #    output_data['activity_matrix'] = counterparty_metrics['activity_matrix']
 
     # return output_data # Devolver el diccionario con el DF consolidado y otros separados
-    return final_consolidated_df # Devolver solo el DataFrame consolidado
+    # return final_consolidated_df # Devolver solo el DataFrame consolidado # Comentado
+    
+    logger.info(f"Análisis de contrapartes completado. Devolviendo diccionario de métricas: {list(counterparty_metrics.keys())}")
+    return counterparty_metrics # Devolver el diccionario
 
 
 def _calculate_general_counterparty_stats(df: pl.DataFrame) -> pl.DataFrame:
