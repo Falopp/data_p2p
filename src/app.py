@@ -20,13 +20,16 @@ import argparse
 import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
+from pathlib import Path
 
 import polars as pl
 import polars.exceptions
 
 from .analyzer import analyze
 from .config_loader import load_config
-from .main_logic import initialize_analysis, run_analysis_pipeline
+from .main_logic import initialize_analysis, execute_analysis
+
+import datetime
 
 # Configuración de logging
 logging.basicConfig(
@@ -40,6 +43,18 @@ INTERNAL_ASSET_COLUMN = "asset_type"
 INTERNAL_STATUS_COLUMN = "status"
 INTERNAL_PAYMENT_METHOD_COLUMN = "payment_method"
 
+# Definición de las categorías principales de análisis
+MAIN_CATEGORIES = {
+    "General": {
+        "filters": {},  # No se aplican filtros adicionales a nivel de categoría aquí
+        "output_folder": " (General)",  # Subcarpeta para esta categoría
+    }
+    # Se podrían añadir más categorías aquí en el futuro si es necesario, por ejemplo:
+    # "Solo_USD": {
+    # "filters": {"fiat_type": ["USD"]},
+    # "output_folder": "Solo_USD_Analysis"
+    # },
+}
 
 def _load_csv_with_schema_override(
     csv_path: str, column_map_config: Dict[str, str]
@@ -226,193 +241,308 @@ def _apply_month_filter(
         )
         return df
 
-    # Filtrar por mes usando la columna de fecha local
-    filtered_df = df.filter(pl.col("Match_time_local").dt.month() == month_number)
+    try:
+        # Asegurarse que la columna de fecha es de tipo Datetime
+        if not isinstance(df["Match_time_local"].dtype, pl.Datetime):
+            logger.warning(
+                f"Columna 'Match_time_local' no es de tipo Datetime. "
+                f"Intentando conversión para filtro de mes {month_name}."
+            )
+            # Intentar convertirla, asumiendo un formato común si es string.
+            # Esta es una solución temporal. Idealmente, el preprocesamiento asegura el tipo correcto.
+            try:
+                df = df.with_columns(
+                    pl.col("Match_time_local").str.to_datetime(
+                        format="%Y-%m-%d %H:%M:%S%.f", strict=False # Ajusta el formato si es necesario
+                    ) 
+                )
+            except polars.exceptions.ComputeError as e:
+                logger.error(
+                    f"Error convirtiendo 'Match_time_local' a Datetime: {e}. "
+                    f"No se aplicará filtro de mes."
+                )
+                return df
+        
+        filtered_df = df.filter(pl.col("Match_time_local").dt.month() == month_number)
+        logger.info(f"Filtro por mes aplicado: {month_name} ({month_number})")
+        return filtered_df
 
-    if filtered_df.is_empty():
-        logger.warning(
-            f"No se encontraron datos para el mes {month_name} ({month_number}). "
-            "El DataFrame resultante está vacío."
+    except Exception as e: # Captura errores más generales durante el filtrado
+        logger.error(
+            f"Error inesperado aplicando filtro de mes {month_name}: {e}. "
+            f"No se aplicará el filtro."
         )
-    else:
-        logger.info(
-            f"Filtro de mes aplicado: {month_name}. "
-            f"Datos filtrados: {filtered_df.shape[0]} filas "
-            f"(de {df.shape[0]} originales)."
-        )
-
-    return filtered_df
+        return df
 
 
 def _load_and_preprocess_input_data(
-    cli_args: argparse.Namespace, column_map_config: Dict[str, str]
+    cli_args: argparse.Namespace, column_map_config: Dict[str, str], current_category_filters: Dict[str, Any], config: Dict[str, Any]
 ) -> Optional[pl.DataFrame]:
-    """Carga datos CSV, renombra columnas y aplica filtros CLI.
+    """Carga, renombra y filtra inicialmente el DataFrame basado en argumentos CLI.
 
-    Esta función encapsula toda la lógica de carga, mapeo de columnas y filtrado
-    inicial basado en los argumentos de línea de comandos.
+    También realiza un pre-procesamiento básico como la conversión de la columna
+    de fecha/hora a un tipo de dato temporal local.
 
     Args:
-        cli_args: Argumentos parseados de CLI con path CSV y filtros
-        column_map_config: Mapeo de nombres de columnas del CSV a nombres internos
+        cli_args: Argumentos parseados de la línea de comandos.
+        column_map_config: Mapeo de nombres de columnas desde la config.
+        current_category_filters: Filtros específicos para la categoría actual
+        config: Configuración general del análisis
 
     Returns:
-        DataFrame procesado y filtrado, o None si hay errores críticos o
-        el DataFrame resultante está vacío tras aplicar filtros
-
-    Raises:
-        Los errores específicos se capturan y se registran, retornando None
-        en caso de fallos críticos
+        Un DataFrame de Polars procesado o None si ocurre un error crítico.
     """
     logger.info(f"Iniciando carga de datos desde CSV: {cli_args.csv}")
-
     try:
-        # Carga del CSV con esquema personalizado
         raw_df = _load_csv_with_schema_override(cli_args.csv, column_map_config)
-
-        # Renombrado de columnas según configuración
-        raw_df = _rename_columns_from_config(raw_df, column_map_config)
-
     except FileNotFoundError:
-        logger.error(
-            f"Error crítico: Archivo CSV no encontrado en ruta: {cli_args.csv}"
-        )
+        logger.error(f"Archivo CSV no encontrado en la ruta: {cli_args.csv}")
         return None
     except polars.exceptions.NoDataError:
-        logger.error(
-            f"Error crítico: El archivo CSV '{cli_args.csv}' está vacío "
-            "o no contiene datos legibles."
-        )
+        logger.error(f"El archivo CSV está vacío: {cli_args.csv}")
         return None
-    except polars.exceptions.SchemaError as e_schema:
-        logger.error(
-            f"Error crítico de esquema en CSV '{cli_args.csv}'. "
-            f"Verifique columnas y tipos: {e_schema}"
-        )
+    except (polars.exceptions.SchemaError, polars.exceptions.ComputeError) as e:
+        logger.error(f"Error de Polars al cargar o procesar el CSV: {e}")
         return None
-    except polars.exceptions.ComputeError as e_compute:
-        logger.error(
-            f"Error crítico de Polars durante carga/renombrado "
-            f"del CSV '{cli_args.csv}': {e_compute}"
-        )
-        return None
-    except Exception as e_general:
-        logger.exception(
-            f"Error inesperado al procesar CSV '{cli_args.csv}': {e_general}"
-        )
+    except Exception as e:
+        logger.error(f"Error inesperado al cargar el CSV: {e}")
         return None
 
-    # Aplicación de filtros CLI sin modificar el DataFrame original
-    filtered_df = raw_df.clone()
+    if raw_df.is_empty():
+        logger.warning("El DataFrame está vacío después de la carga. No hay datos para analizar.")
+        return raw_df
 
-    # Aplicar cada filtro en secuencia
-    filtered_df = _apply_fiat_filter(filtered_df, cli_args.fiat_filter or [])
-    filtered_df = _apply_asset_filter(filtered_df, cli_args.asset_filter or [])
-    filtered_df = _apply_status_filter(filtered_df, cli_args.status_filter or [])
-    filtered_df = _apply_payment_method_filter(
-        filtered_df, cli_args.payment_method_filter or []
-    )
+    df_renamed = _rename_columns_from_config(raw_df, column_map_config)
 
-    if filtered_df.is_empty():
+    # Aplicar filtros básicos existentes
+    if cli_args.fiat_filter:
+        df_renamed = _apply_fiat_filter(df_renamed, cli_args.fiat_filter)
+    if cli_args.asset_filter:
+        df_renamed = _apply_asset_filter(df_renamed, cli_args.asset_filter)
+    if cli_args.status_filter:
+        df_renamed = _apply_status_filter(df_renamed, cli_args.status_filter)
+    if cli_args.payment_method_filter:
+        df_renamed = _apply_payment_method_filter(
+            df_renamed, cli_args.payment_method_filter
+        )
+
+    # --- Procesamiento de Columnas de Tiempo ---
+    logger.info("Iniciando procesamiento de columnas de tiempo con Polars...")
+    time_cols_created_or_verified = []
+    match_time_utc_col_internal = "match_time_utc" # Nombre interno post-renombrado
+
+    if match_time_utc_col_internal in df_renamed.columns:
+        logger.info(f"Generando columnas de tiempo a partir de '{match_time_utc_col_internal}'.")
+        try:
+            # Primero, intentar la conversión directa si ya es datetime o un formato reconocido
+            if not isinstance(df_renamed[match_time_utc_col_internal].dtype, pl.Datetime):
+                df_renamed = df_renamed.with_columns(
+                    pl.col(match_time_utc_col_internal).str.to_datetime(
+                        format="%Y-%m-%d %H:%M:%S", strict=True # Formato esperado del CSV
+                    ).alias("Match_time_utc_dt_naive")
+                )
+            else: # Si ya es datetime, solo clonarla para mantener consistencia
+                df_renamed = df_renamed.with_columns(
+                    pl.col(match_time_utc_col_internal).alias("Match_time_utc_dt_naive")
+                )
+            
+            # Proceder con la zona horaria y otras derivaciones
+            df_renamed = df_renamed.with_columns([
+                pl.col("Match_time_utc_dt_naive").dt.replace_time_zone("UTC").alias("Match_time_utc_dt")
+            ])
+
+            uy_tz = "America/Montevideo"
+            df_renamed = df_renamed.with_columns([
+                pl.col("Match_time_utc_dt").dt.convert_time_zone(uy_tz).alias("Match_time_local"),
+            ])
+            
+            df_renamed = df_renamed.with_columns([
+                pl.col("Match_time_local").dt.hour().alias("hour_local"),
+                pl.col("Match_time_local").dt.strftime("%Y-%m").alias("YearMonthStr"),
+                pl.col("Match_time_local").dt.year().alias("Year"),
+                pl.col("Match_time_local").dt.weekday().alias("weekday_local"), # Lunes=1, Domingo=7
+                pl.col("Match_time_local").dt.date().alias("date_local")
+            ]).drop("Match_time_utc_dt_naive")
+
+            initial_rows = df_renamed.height
+            # Es crucial dropear nulos DESPUÉS de la conversión a Match_time_local y no antes
+            # o sobre una columna intermedia que podría fallar para todas las filas.
+            df_renamed = df_renamed.drop_nulls(subset=["Match_time_local"]) 
+            rows_dropped = initial_rows - df_renamed.height
+            if rows_dropped > 0:
+                logger.warning(f"Filas eliminadas debido a valores nulos/inválidos en fechas después de la conversión: {rows_dropped}")
+
+            if df_renamed.height > 0:
+                time_cols_created_or_verified.extend([
+                    "Match_time_utc_dt", "Match_time_local", "hour_local", 
+                    "YearMonthStr", "Year", "weekday_local", "date_local"
+                ])
+            else:
+                logger.error("El DataFrame quedó vacío después del procesamiento de fechas y drop_nulls. Verifica la calidad de los datos de fecha en el CSV.")
+                return None # DataFrame vacío, no se puede continuar
+
+        except Exception as e_time_proc: # Captura más genérica para errores de conversión
+            logger.error(f"Error crítico durante el procesamiento de la columna '{match_time_utc_col_internal}': {e_time_proc}. No se pueden generar columnas de tiempo.")
+            # Si falla la conversión de tiempo, es mejor devolver None para que el script se detenga controladamente.
+            return None
+    else:
         logger.warning(
-            "El DataFrame está vacío después de aplicar filtros CLI. "
-            "No se generarán resultados."
+            f"Columna de tiempo original '{match_time_utc_col_internal}' no encontrada. "
+            f"No se crearán columnas de tiempo derivadas. El análisis puede ser limitado."
         )
+        # Considerar si devolver None o df aquí. Si las fechas son cruciales, mejor None.
         return None
+
+    if time_cols_created_or_verified:
+        logger.info(f"Columnas de tiempo procesadas/verificadas: {', '.join(time_cols_created_or_verified)}.")
+    logger.info("Procesamiento de columnas de tiempo completado.")
+    # --- Fin Procesamiento de Columnas de Tiempo ---
+
+    # Filtro de mes (después de que Match_time_local se haya creado)
+    if cli_args.mes:
+        month_name_or_num = cli_args.mes.lower()
+        month_number = initialize_analysis.MONTH_NAMES_MAP.get(month_name_or_num)
+        if not month_number:
+            try:
+                month_number = int(month_name_or_num)
+                if not 1 <= month_number <= 12:
+                    logger.warning(f"Número de mes '{month_name_or_num}' inválido. Se ignora filtro de mes.")
+                    month_number = None
+            except ValueError:
+                logger.warning(f"Nombre de mes '{month_name_or_num}' no reconocido. Se ignora filtro de mes.")
+                month_number = None
+        
+        if month_number:
+            df_renamed = _apply_month_filter(df_renamed, month_number, cli_args.mes)
+
+
+    # Se eliminan las llamadas a los nuevos filtros avanzados
 
     logger.info(
-        f"Carga y filtrado completados. DataFrame resultante: "
-        f"{filtered_df.shape[0]} filas."
+        f"Carga y filtrado completados. DataFrame resultante: {df_renamed.shape[0]} filas."
     )
-    return filtered_df
+    return df_renamed
 
 
 def main() -> None:
-    """Punto de entrada principal para la aplicación CLI de análisis P2P.
+    """Punto de entrada principal del script."""
+    args, clean_filename_suffix_cli, analysis_title_suffix_cli = initialize_analysis()
+    logger.error(f"CRITICAL_APP_DEBUG_MAIN_START: Args parseados: {args}") 
+    logger.info(f"CRITICAL_APP_DEBUG_MAIN_START: clean_filename_suffix_cli: {clean_filename_suffix_cli}")
+    logger.info(f"CRITICAL_APP_DEBUG_MAIN_START: analysis_title_suffix_cli: {analysis_title_suffix_cli}")
 
-    Orquesta el flujo completo de la aplicación:
-    1. Inicialización y parseo de argumentos CLI
-    2. Carga de configuración
-    3. Carga y pre-procesamiento de datos CSV
-    4. Aplicación de filtros CLI (excepto mes)
-    5. Ejecución del análisis base con analyze()
-    6. Aplicación del filtro de mes (si se especifica)
-    7. Ejecución del pipeline de análisis completo
-    8. Reporte de finalización con ruta de resultados
+    output_dir_base = Path(args.out) 
+    try:
+        output_dir_base.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Directorio de salida base verificado/creado: {output_dir_base}")
+    except Exception as e:
+        logger.error(f"No se pudo crear el directorio de salida base {output_dir_base}: {e}")
+        return
 
-    Raises:
-        SystemExit: Con código 1 si hay errores críticos de carga/filtrado,
-                   con código 0 si el DataFrame queda vacío post-análisis
-    """
-    # Inicialización y parseo de argumentos
-    args, cli_filename_suffix, cli_report_title_suffix = initialize_analysis()
+    logger.info(f"Directorio de salida principal: {args.out}")
+    logger.info(f"Archivo CSV de entrada: {args.csv}")
 
-    # Carga de configuración centralizada
-    config = load_config()
+    config_path = args.config if hasattr(args, 'config') else None
+    config = load_config(config_path) 
     column_map_config = config.get("column_mapping", {})
-    sell_operation_config = config.get("sell_operation", {})
 
-    # Carga y pre-procesamiento de datos con filtros CLI (excepto mes)
-    cli_filtered_df = _load_and_preprocess_input_data(args, column_map_config)
+    if args.unified_only:
+        logger.info("Ejecutando en modo --unified-only.")
+        logger.info("Cargando y preprocesando datos para el reporte unificado global...")
+        df_full_processed = _load_and_preprocess_input_data(args, column_map_config, {}, config)
+        if df_full_processed is not None and not df_full_processed.is_empty():
+            logger.info(f"Datos cargados para unificado global. Shape: {df_full_processed.shape}")
+            # Para unified_only, el output_dir es directamente la base.
+            # Necesitamos construir all_period_data para generate_unified_report
+            # Esto es un placeholder, la lógica real de _execute_unified_only_analysis se movió/integró.
+            # Esta rama de unified_only necesita ser revisada si se va a usar extensivamente.
+            # Por ahora, asumimos que si unified_only=True, main_logic.execute_analysis no se llama,
+            # y alguna otra función debería manejar la generación del reporte unificado.
+            # O, que execute_analysis se llame con flags especiales.
+            # La implementación actual de UnifiedReporter espera "all_period_data"
+            # que es un dict complejo que execute_analysis construye.
+            # TEMPORALMENTE: Para evitar error, si es unified_only, creamos el reporte unificado
+            # de forma simplificada o indicamos que se necesita implementar.
+            logger.warning("La lógica completa para --unified-only y la recolección de datos para generate_unified_report necesita revisión.")
+            logger.warning("Intentando generar reporte unificado solo con datos totales...")
+            
+            # Simulación de all_period_data para el reporte unificado en modo --unified-only
+            # Se asume que el df_full_processed contiene todos los datos sin filtrar por categoría.
+            # Y que el reporte unificado procesará los años internamente si es necesario.
+            all_period_data_for_unified_only = {
+                "total": {
+                    "todas": df_full_processed.clone(),
+                    "completadas": df_full_processed.filter(pl.col(INTERNAL_STATUS_COLUMN) == "Completed").clone() if INTERNAL_STATUS_COLUMN in df_full_processed.columns else pl.DataFrame(),
+                    "canceladas": df_full_processed.filter(pl.col(INTERNAL_STATUS_COLUMN) == "Cancelled").clone() if INTERNAL_STATUS_COLUMN in df_full_processed.columns else pl.DataFrame(),
+                }
+            }
+            if hasattr(args, 'no_annual_breakdown') and not args.no_annual_breakdown and "Year" in df_full_processed.columns:
+                 # Si hay desglose anual y la columna Year existe, popular también por años
+                available_years_unified = sorted([str(y) for y in df_full_processed.select(pl.col("Year").unique()).drop_nulls().to_series().to_list() if isinstance(y, int) and not isinstance(y, bool)])
+                for year_str in available_years_unified:
+                    df_year_specific = df_full_processed.filter(pl.col("Year") == int(year_str))
+                    all_period_data_for_unified_only[year_str] = {
+                        "todas": df_year_specific.clone(),
+                        "completadas": df_year_specific.filter(pl.col(INTERNAL_STATUS_COLUMN) == "Completed").clone() if INTERNAL_STATUS_COLUMN in df_year_specific.columns else pl.DataFrame(),
+                        "canceladas": df_year_specific.filter(pl.col(INTERNAL_STATUS_COLUMN) == "Cancelled").clone() if INTERNAL_STATUS_COLUMN in df_year_specific.columns else pl.DataFrame(),
+                    }
 
-    if cli_filtered_df is None:
+            reporter_unificado = UnifiedReporter(str(output_dir_base), config, args)
+            reporter_unificado.generate_unified_report(all_period_data_for_unified_only)
+            logger.info(f"Reporte unificado (modo --unified-only) generado en: {output_dir_base}")
+        else:
+            logger.error("No se pudieron cargar datos para el modo --unified-only.")
+        logger.info("🎉 Análisis (modo --unified-only) completado.")
+        return # Terminar aquí si es unified_only
+
+    # Bucle principal para procesar categorías (ej. "General")
+    for category_name, category_config_map in MAIN_CATEGORIES.items():
+        logger.info(f"\n--- Procesando categoría principal: {category_name} ---")
+        logger.error( # CRITICAL LOG
+            f"CRITICAL_APP_DEBUG: Procesando categoría '{category_name}'. Args: {args}, CatFilters: {category_config_map}"
+        )
+
+        current_category_filters = category_config_map.get("filters", {}).copy()
+        category_output_folder_name = category_config_map.get("output_folder", f" {category_name}").strip()
+        output_dir_for_analysis = output_dir_base / category_output_folder_name
+
+        try:
+            output_dir_for_analysis.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Directorio de categoría creado/verificado: {output_dir_for_analysis}")
+        except Exception as e:
+            logger.error(f"No se pudo crear el directorio de salida para la categoría {category_name}: {output_dir_for_analysis}. Error: {e}")
+            continue # Saltar a la siguiente categoría
+        
+        logger.error(f"CRITICAL_APP_DEBUG: Antes de _load_and_preprocess_input_data para '{category_name}'")
+        df_processed_for_category = _load_and_preprocess_input_data(
+            args, column_map_config, current_category_filters, config
+        )
+
+        if df_processed_for_category is None or df_processed_for_category.is_empty():
+            logger.warning(f"No hay datos para procesar en la categoría '{category_name}' después de la carga y preprocesamiento. Saltando execute_analysis.")
+            continue
+
         logger.error(
-            "Proceso terminado: errores en carga o DataFrame vacío post-filtros."
+            f"CRITICAL_APP_DEBUG: Para '{category_name}', ANTES de execute_analysis: df.shape: {df_processed_for_category.shape}, df.cols: {df_processed_for_category.columns}, output_dir_for_analysis: {output_dir_for_analysis}"
         )
-        exit(1)
+        if "Year" in df_processed_for_category.columns:
+             unique_years_app = df_processed_for_category.select(pl.col("Year").unique().sort(nulls_last=True)).to_series().to_list()
+             logger.error(f"CRITICAL_APP_DEBUG: 'Year' en df_processed. Únicos: {unique_years_app}")
+        else:
+             logger.error("CRITICAL_APP_DEBUG: 'Year' column NOT in df_processed antes de execute_analysis.")
 
-    logger.info("Iniciando pre-procesamiento con analyze() para generar columnas base.")
-
-    # Pre-procesamiento base mediante analyze() para generar columnas de tiempo
-    analyze_output: Tuple[pl.DataFrame, Optional[Any]] = analyze(
-        cli_filtered_df.clone(),
-        column_map_config,
-        sell_operation_config,
-        cli_args=vars(args),
-    )
-    base_processed_df = analyze_output[0]
-
-    if base_processed_df.is_empty():
-        logger.warning(
-            "DataFrame vacío después de pre-procesamiento con analyze(). "
-            "No se generarán resultados."
-        )
-        exit(0)
-
-    # Aplicar filtro de mes DESPUÉS de que analyze() genere las columnas de tiempo
-    if hasattr(args, "month_number") and args.month_number is not None:
-        logger.info(f"Aplicando filtro de mes: {args.month_name_display}")
-        base_processed_df = _apply_month_filter(
-            base_processed_df, args.month_number, args.month_name_display
+        execute_analysis(
+            df=df_processed_for_category.clone(),
+            col_map=column_map_config, 
+            config=config,
+            cli_args=args,
+            output_dir=str(output_dir_for_analysis),
+            clean_filename_suffix_cli=clean_filename_suffix_cli,  # NUEVO
+            analysis_title_suffix_cli=analysis_title_suffix_cli    # NUEVO
         )
 
-        if base_processed_df.is_empty():
-            logger.warning(
-                f"DataFrame vacío después de filtrar por mes {args.month_name_display}. "
-                "No se generarán resultados."
-            )
-            exit(0)
-
-        logger.info(
-            f"Filtro de mes aplicado exitosamente. Filas resultantes: {base_processed_df.shape[0]}"
-        )
-
-    logger.info("Pre-procesamiento completado. Iniciando pipeline principal...")
-
-    # Ejecución del pipeline de análisis completo
-    run_analysis_pipeline(
-        df_master_processed=base_processed_df,
-        args=args,
-        config=config,
-        base_file_suffix=cli_filename_suffix,
-        base_title_suffix=cli_report_title_suffix,
-    )
-
-    # Reporte de finalización exitosa
-    output_path = os.path.abspath(args.out)
-    logger.info(
-        f"✅ Análisis completado exitosamente. " f"Resultados en: {output_path}"
-    )
+    logger.info("🎉 Análisis completado para todas las categorías.")
+    logger.info("El pipeline de análisis ha finalizado.")
 
 
 if __name__ == "__main__":

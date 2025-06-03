@@ -8,6 +8,7 @@ import argparse
 import pathlib
 
 from . import plotting 
+from . import counterparty_plotting  # Importar el nuevo módulo
 
 logger = logging.getLogger(__name__)
 
@@ -74,10 +75,13 @@ def save_outputs(
     figures_dir_uyu = os.path.join(figures_dir, "uyu")
     figures_dir_general = os.path.join(figures_dir, "general")
     figures_dir_combined = os.path.join(figures_dir, "combined")
+    # Nuevo subdirectorio para contrapartes
+    figures_dir_counterparty = os.path.join(figures_dir, "counterparty_analysis")
     os.makedirs(figures_dir_usd, exist_ok=True)
     os.makedirs(figures_dir_uyu, exist_ok=True)
     os.makedirs(figures_dir_general, exist_ok=True)
     os.makedirs(figures_dir_combined, exist_ok=True)
+    os.makedirs(figures_dir_counterparty, exist_ok=True)
 
     final_title_suffix = title_suffix_from_cli
     report_main_title = f"Reporte de Operaciones P2P"
@@ -167,6 +171,55 @@ def save_outputs(
                         figures_for_html.append({'title': specific_title, 'path': relative_single_path, 'type': single_file_type})
     
     logger.info(f"Generando y adaptando datos para gráficos de '{output_label} - {status_subdir}'...")
+
+    # --- NUEVO: Gráficos de Contrapartes ---
+    logger.info("Generando gráficos de análisis de contrapartes...")
+    counterparty_metrics_for_plotting = {}
+    
+    # Extraer y convertir métricas de contrapartes a pandas
+    for name, data in metrics_to_save_pandas.items():
+        if name.startswith('counterparty_') and isinstance(data, pd.DataFrame) and not data.empty:
+            clean_name = name.replace('counterparty_', '')
+            counterparty_metrics_for_plotting[clean_name] = data
+    
+    # Generar todos los gráficos de contrapartes si hay datos disponibles
+    counterparty_figure_paths = []
+    if counterparty_metrics_for_plotting:
+        try:
+            counterparty_figure_paths = counterparty_plotting.generate_all_counterparty_plots(
+                counterparty_metrics_for_plotting,
+                figures_dir,  # El módulo creará su propio subdirectorio
+                title_suffix=final_title_suffix,
+                file_identifier=file_name_suffix_from_cli
+            )
+            
+            # Añadir figuras de contrapartes al HTML
+            for fig_path in counterparty_figure_paths:
+                if os.path.exists(fig_path):
+                    # Extraer nombre descriptivo del archivo
+                    file_name = os.path.basename(fig_path)
+                    if 'volume_ranking' in file_name:
+                        title = "Ranking de Contrapartes por Volumen"
+                    elif 'volume_vs_frequency' in file_name:
+                        title = "Volumen vs Frecuencia de Trading"
+                    elif 'vip_tier_distribution' in file_name:
+                        title = "Distribución de Tiers VIP"
+                    elif 'payment_preferences_heatmap' in file_name:
+                        title = "Preferencias de Métodos de Pago"
+                    elif 'temporal_timeline' in file_name:
+                        title = "Evolución Temporal por Contraparte"
+                    elif 'efficiency_vs_volume' in file_name:
+                        title = "Eficiencia vs Volumen"
+                    elif 'trading_patterns_radar' in file_name:
+                        title = "Patrones de Trading (Radar)"
+                    else:
+                        title = "Análisis de Contrapartes"
+                    
+                    add_figure_to_html_list(fig_path, title, "counterparty_analysis")
+            
+            logger.info(f"Generados {len(counterparty_figure_paths)} gráficos de contrapartes")
+        except Exception as e:
+            logger.error(f"Error generando gráficos de contrapartes: {e}")
 
     # --- Hourly Counts Plot --- 
     hourly_counts_pd = metrics_to_save_pandas.get('hourly_counts')
@@ -426,6 +479,10 @@ def save_outputs(
         #         logger.error(f"Error al generar Heatmap (volumen) para '{output_label} - {status_subdir}': {e_heatmap_vol}.")
         # else:
         #     logger.warning(f"Columna 'TotalPrice_num' no encontrada para heatmap de volumen en '{output_label} - {status_subdir}'.")
+
+        # Inicializar DataFrames para evitar UnboundLocalError
+        df_usd_usdt = pd.DataFrame()
+        df_uyu = pd.DataFrame()
 
         # --- Heatmaps de Volumen por Moneda Fiat Específica ---
         if 'TotalPrice_num' in df_to_plot_from_pandas.columns and 'fiat_type' in df_to_plot_from_pandas.columns:

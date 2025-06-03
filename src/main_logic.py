@@ -1,451 +1,349 @@
-import argparse
-import polars as pl
-import logging
-from pathlib import Path
-from typing import Tuple, Dict, Any, List
+#!/usr/bin/env python3
+"""
+Módulo para la lógica principal de análisis y configuración inicial.
+"""
 
+import argparse
+import logging
+import os # Necesario para algunas operaciones de Path, aunque Path maneja mucho
+import re
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+import polars as pl
+
+# Asegurarse de que DEFAULT_CONFIG esté disponible
+from .config_loader import DEFAULT_CONFIG 
 from .analyzer import analyze
-from .reporter import save_outputs
+# from .plotting import get_plot_config # Eliminada esta importación
+from .reporter import save_outputs # Contiene generate_html_report, generate_summary_excel, save_metric_tables
+from .unified_reporter import UnifiedReporter
 
 logger = logging.getLogger(__name__)
 
-# Mapeo de nombres de meses a números para facilitar búsqueda
 MONTH_NAMES_MAP = {
-    "enero": 1,
-    "febrero": 2,
-    "marzo": 3,
-    "abril": 4,
-    "mayo": 5,
-    "junio": 6,
-    "julio": 7,
-    "agosto": 8,
-    "septiembre": 9,
-    "octubre": 10,
-    "noviembre": 11,
-    "diciembre": 12,
-    "jan": 1,
-    "feb": 2,
-    "mar": 3,
-    "apr": 4,
-    "may": 5,
-    "jun": 6,
-    "jul": 7,
-    "aug": 8,
-    "sep": 9,
-    "oct": 10,
-    "nov": 11,
-    "dec": 12,
-    "january": 1,
-    "february": 2,
-    "march": 3,
-    "april": 4,
-    "june": 6,
-    "july": 7,
-    "august": 8,
-    "september": 9,
-    "october": 10,
-    "november": 11,
-    "december": 12,
+    "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
+    "julio": 7, "agosto": 8, "septiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12,
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+    "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+    "january": 1, "february": 2, "march": 3, "april": 4,
+    "june": 6, "july": 7, "august": 8, "september": 9, "october": 10,
+    "november": 11, "december": 12,
 }
 
-
 def initialize_analysis(
-    cli_args_list: List[str] = None,
+    cli_args_list: Optional[List[str]] = None,
 ) -> Tuple[argparse.Namespace, str, str]:
+    """Inicializa el análisis: parsea argumentos y configura el logging."""
+    logger.error("CRITICAL_DEBUG_INIT_ANALYSIS_START: Entrando a initialize_analysis")
     parser = argparse.ArgumentParser(
-        description="Analiza datos de operaciones P2P desde un CSV y genera reportes y gráficos.",
-        formatter_class=argparse.RawTextHelpFormatter,
-        epilog=f"""Ejemplos de uso:\n{'-'*17}\n1. Análisis básico:\n   python src/analisis_profesional_p2p.py --csv data/p2p.csv\n\n2. Solo total, sin desglose anual:\n   python src/analisis_profesional_p2p.py --csv data/p2p.csv --no_annual_breakdown\n\n3. Especificar salida:\n   python src/analisis_profesional_p2p.py --csv data/p2p.csv --out mis_resultados_p2p\n\n4. Filtrar por fiat y asset:\n   python src/analisis_profesional_p2p.py --csv data/p2p.csv --fiat_filter UYU ARS --asset_filter USDT BTC\n\n5. Análisis de mayo solamente:\n   python src/analisis_profesional_p2p.py --csv data/p2p.csv --mes mayo""",
+        description="Analizador de datos P2P.",
+        formatter_class=argparse.RawTextHelpFormatter
     )
     parser.add_argument(
-        "--csv", required=True, help="Ruta al archivo CSV de operaciones P2P."
+        "--csv", type=str, required=True, help="Ruta al archivo CSV de datos P2P."
     )
     parser.add_argument(
-        "--out",
-        default="output",
-        help="Carpeta base para guardar los resultados (Default: output).",
+        "--out", type=str, default="output",
+        help="Directorio de salida para los reportes y gráficos (Default: output).",
     )
     parser.add_argument(
-        "--fiat_filter",
-        nargs="+",
-        default=None,
-        help="Filtrar por una o más monedas Fiat.",
+        "--config", type=str, default=None,
+        help="Ruta a un archivo de configuración YAML personalizado.",
     )
     parser.add_argument(
-        "--asset_filter",
-        nargs="+",
-        default=None,
-        help="Filtrar por uno o más tipos de Activos.",
+        "--log-level", type=str, default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="Nivel de logging.",
     )
-    parser.add_argument(
-        "--status_filter",
-        nargs="+",
-        default=None,
-        help="Filtrar por uno o más Estados de orden.",
-    )
-    parser.add_argument(
-        "--payment_method_filter",
-        nargs="+",
-        default=None,
-        help="Filtrar por uno o más Métodos de Pago.",
-    )
-    parser.add_argument(
-        "--year",
-        nargs="?",
-        const="all",
-        default=None,
-        help="Specify a year to process (e.g., 2023). If provided without a value or as '--year all', all available years will be processed. If omitted, all years will also be processed. The 'total' dataset is always processed.",
-    )
-    parser.add_argument(
-        "--mes",
-        type=str,
-        default=None,
-        help="Filtrar por un mes específico (ej. mayo, december, 5). Acepta nombres en español/inglés o números (1-12).",
-    )
-    parser.add_argument(
-        "--detect-outliers",
-        action="store_true",
-        help="Activar detección de outliers con IsolationForest.",
-    )
-    parser.add_argument(
-        "--event-date",
-        type=str,
-        default=None,
-        help="Fecha del evento (YYYY-MM-DD) para análisis comparativo Antes/Después (24h).",
-    )
-    parser.add_argument(
-        "--interactive",
-        action="store_true",
-        help="Activar modo interactivo (ej. gráficos Plotly incrustados o enlazados).",
-    )
+    # Filtros CLI (ejemplos, app.py podría manejarlos antes)
+    parser.add_argument("--fiat_filter", nargs="+", default=None, help="Filtrar por monedas Fiat (no implementado centralmente aquí aún).")
+    parser.add_argument("--asset_filter", nargs="+", default=None, help="Filtrar por tipos de Activos (no implementado centralmente aquí aún).")
+    parser.add_argument("--status_filter", nargs="+", default=None, help="Filtrar por Estados de orden (CLI, para sufijo global o si app.py no filtra).")
+    parser.add_argument("--payment_method_filter", nargs="+", default=None, help="Filtrar por Métodos de Pago (no implementado centralmente aquí aún).")
+    parser.add_argument("--mes", help="Analizar solo un mes específico (nombre o número). Ej: --mes mayo")
+    parser.add_argument("--event_date", help="Fecha de evento para análisis comparativo Antes/Después (YYYY-MM-DD) (no implementado centralmente aquí aún).")
 
-    if cli_args_list is None:
-        args = parser.parse_args()
-    else:
-        args = parser.parse_args(cli_args_list)  # Para testing
+    parser.add_argument(
+        "--no-annual-breakdown", action="store_true",
+        help="No generar análisis anuales individuales, solo el total.",
+    )
+    parser.add_argument(
+        "--year", type=str, default=None, # Default None, execute_analysis lo interpreta como 'all'
+        help="Año para analizar (ej: 2023) o 'all'. Si no se da, todos los años y total.",
+    )
+    parser.add_argument(
+        "--unified-only", action="store_true",
+        help="Generar solo el reporte unificado global y salir (lógica en app.py).",
+    )
+    parser.add_argument(
+        "--no-unified-report", action="store_true",
+        help="Omitir la generación del reporte unificado global.",
+    )
+    parser.add_argument("--detect_outliers", action="store_true", help="Activar detección de outliers.")
+    parser.add_argument("--outliers_contamination", default="auto", help="Parámetro 'contamination' para Isolation Forest.")
+    parser.add_argument("--outliers_n_estimators", type=int, default=100, help="Número de estimadores para Isolation Forest.")
+    parser.add_argument("--outliers_random_state", type=int, default=42, help="Random state para Isolation Forest.")
+    parser.add_argument("--interactive", action="store_true", help="Modo interactivo (actualmente sin efecto específico global).")
 
-    logger.info(f"Directorio de salida principal: {args.out}")
-    logger.info(f"Archivo CSV de entrada: {args.csv}")
+    args = parser.parse_args(cli_args_list if cli_args_list is not None else None)
 
-    processed_fiats = []
-    processed_assets = []
-    processed_status_cli_arg = []
-    safe_payment_methods = []
+    try:
+        log_level_int = getattr(logging, args.log_level.upper(), logging.INFO)
+        
+        # Configuración básica para la consola
+        logging.basicConfig(
+            level=log_level_int,
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+            force=True 
+        )
 
-    if args.fiat_filter:
-        processed_fiats = [f.strip().upper() for f in args.fiat_filter]
-    if args.asset_filter:
-        processed_assets = [a.strip().upper() for a in args.asset_filter]
-    if args.status_filter:
-        processed_status_cli_arg = [s.strip().capitalize() for s in args.status_filter]
-    if args.payment_method_filter:
-        safe_payment_methods = [
-            pm.strip().replace(" ", "_") for pm in args.payment_method_filter
-        ]
+        # Añadir FileHandler para errores
+        error_log_file = Path(args.out) / "log_error.txt"
+        # Asegurarse de que el directorio de salida exista para el log de errores
+        error_log_file.parent.mkdir(parents=True, exist_ok=True)
 
-    # Procesar filtro de mes
-    month_number = None
-    month_name_display = None
+        file_handler = logging.FileHandler(error_log_file, mode='a') # 'a' para append
+        file_handler.setLevel(logging.ERROR) # Solo errores y niveles superiores
+        file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+        file_handler.setFormatter(file_formatter)
+        
+        # Añadir el handler al logger raíz (o a un logger específico si se prefiere)
+        logging.getLogger('').addHandler(file_handler) # Logger raíz
+
+        logging.getLogger("matplotlib").setLevel(logging.WARNING)
+        logging.getLogger("PIL").setLevel(logging.WARNING)
+        logger.info(f"Nivel de logging configurado a: {args.log_level}")
+    except AttributeError:
+        logger.error(f"Nivel de logging inválido: {args.log_level}. Usando INFO por defecto.")
+
+    logger.error(f"CRITICAL_DEBUG_INIT_ANALYSIS_END: Args parseados en initialize_analysis: {args}")
+
+    clean_filename_suffix = ""
+    analysis_title_suffix = ""
+    
     if args.mes:
         month_input = args.mes.strip().lower()
-
-        # Intentar parsear como número
+        month_number = None
+        month_name_display = None
         try:
             month_number = int(month_input)
             if not (1 <= month_number <= 12):
-                logger.error(
-                    f"Número de mes inválido: {month_number}. Debe estar entre 1 y 12."
-                )
-                exit(1)
-            # Convertir número a nombre para display
-            month_names = [
-                "enero",
-                "febrero",
-                "marzo",
-                "abril",
-                "mayo",
-                "junio",
-                "julio",
-                "agosto",
-                "septiembre",
-                "octubre",
-                "noviembre",
-                "diciembre",
-            ]
-            month_name_display = month_names[month_number - 1].capitalize()
-        except ValueError:
-            # No es un número, buscar en el mapeo de nombres
-            if month_input in MONTH_NAMES_MAP:
-                month_number = MONTH_NAMES_MAP[month_input]
-                month_name_display = month_input.capitalize()
+                logger.error(f"Número de mes inválido: {month_number}. No se aplicará filtro de mes.")
+                args.mes = None 
             else:
-                logger.error(
-                    f"Mes no reconocido: '{args.mes}'. Use nombres en español/inglés o números 1-12."
-                )
-                exit(1)
+                month_names_list = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+                month_name_display = month_names_list[month_number - 1]
+        except ValueError:
+            month_number = MONTH_NAMES_MAP.get(month_input)
+            if not month_number:
+                logger.error(f"Nombre de mes inválido: '{args.mes}'. No se aplicará filtro de mes.")
+                args.mes = None
+            else:
+                month_name_display = month_input.capitalize()
 
-        # Agregar el mes procesado a args para uso posterior
-        args.month_number = month_number
-        args.month_name_display = month_name_display
-        logger.info(
-            f"Filtro de mes activado: {month_name_display} (mes {month_number})"
-        )
+        if args.mes and month_number: 
+            args.month_number = month_number # Guardar en args para uso en app.py
+            args.month_name_display = month_name_display
+            logger.info(f"Filtro de mes activado para: {month_name_display} (mes {month_number})")
+            clean_filename_suffix += f"_mes_{month_name_display.lower().replace(' ', '_')}"
+            analysis_title_suffix += f" (Mes: {month_name_display})"
     else:
         args.month_number = None
         args.month_name_display = None
 
-    file_suffix_parts_cli = []
-    title_suffix_parts_cli = []
-    if args.fiat_filter:
-        file_suffix_parts_cli.append(f"fiat_({'_'.join(processed_fiats)})")
-        title_suffix_parts_cli.append(f"Fiat {', '.join(processed_fiats)}")
-    if args.asset_filter:
-        file_suffix_parts_cli.append(f"asset_({'_'.join(processed_assets)})")
-        title_suffix_parts_cli.append(f"Asset {', '.join(processed_assets)}")
-    if args.status_filter:
-        file_suffix_parts_cli.append(f"status_({'_'.join(processed_status_cli_arg)})")
-        title_suffix_parts_cli.append(f"Status {', '.join(processed_status_cli_arg)}")
-    if args.payment_method_filter:
-        file_suffix_parts_cli.append(f"payment_({'_'.join(safe_payment_methods)})")
-        title_suffix_parts_cli.append(
-            f"Payment {', '.join(args.payment_method_filter)}"
-        )
-    if args.mes:
-        file_suffix_parts_cli.append(f"mes_{month_name_display.lower()}")
-        title_suffix_parts_cli.append(f"Mes {month_name_display}")
+    if args.status_filter: # Para el sufijo global si se usa este filtro desde CLI
+        suffix_text = "_" + "_".join(args.status_filter).lower().replace(" ", "_")
+        clean_filename_suffix += suffix_text
+        analysis_title_suffix += f" (CLI Filtrado: {', '.join(args.status_filter)})"
+    
+    return args, clean_filename_suffix, analysis_title_suffix
 
-    if file_suffix_parts_cli:
-        base_filename_suffix_cli = "_" + "_".join(file_suffix_parts_cli)
-        analysis_title_suffix_cli = " (" + "; ".join(title_suffix_parts_cli) + ")"
+def _apply_status_filters_for_period(
+    df: pl.DataFrame, period_name: str, config: Dict
+) -> Dict[str, pl.DataFrame]:
+    """
+    Aplica los filtros de estado (todas, completadas, canceladas) para un periodo dado.
+    Devuelve un diccionario con los dataframes filtrados.
+    """
+    datasets = {}
+    status_column = "status"  # Usar 'status' directamente, ya que app.py lo estandariza.
+
+    datasets["todas"] = df.clone() 
+    logger.info(f"Dataset para '{period_name} - todas' preparado con {df.height} filas.")
+
+    df_schema = df.schema # Usar para crear DFs vacíos si es necesario
+
+    if status_column in df.columns:
+        completed_df = df.filter(pl.col(status_column).str.to_titlecase().str.strip_chars() == "Completed")
+        datasets["completadas"] = completed_df.clone()
+        logger.info(f"Dataset para '{period_name} - completadas' preparado con {completed_df.height} filas.")
+        
+        cancelled_df = df.filter(pl.col(status_column).str.to_titlecase().str.strip_chars() == "Cancelled")
+        datasets["canceladas"] = cancelled_df.clone()
+        logger.info(f"Dataset para '{period_name} - canceladas' preparado con {cancelled_df.height} filas.")
     else:
-        base_filename_suffix_cli = "_general"
-        analysis_title_suffix_cli = " (General)"
-    clean_filename_suffix_cli = (
-        base_filename_suffix_cli.replace("(", "")
-        .replace(")", "")
-        .replace(",", "")
-        .replace(";", "")
-        .replace(":", "")
-        .lower()
-    )
+        logger.warning(f"Columna de estado '{status_column}' no encontrada. No se puede filtrar por 'Completed' o 'Cancelled' para '{period_name}'. Se crearán DataFrames vacíos.")
+        datasets["completadas"] = pl.DataFrame(schema=df_schema) 
+        datasets["canceladas"] = pl.DataFrame(schema=df_schema)
+        
+    return datasets
 
-    return args, clean_filename_suffix_cli, analysis_title_suffix_cli
-
-
-def run_analysis_pipeline(
-    df_master_processed: pl.DataFrame,
-    args: argparse.Namespace,
-    config: Dict[str, Any],
-    base_file_suffix: str,  # Renombrado de clean_file_suffix para claridad
-    base_title_suffix: str,  # Renombrado de title_suffix_str para claridad
-    # logger es global o pasado si es necesario
-):
+def execute_analysis(
+    df: pl.DataFrame, 
+    col_map: dict,    # Este es el col_map de la config
+    config: dict,     
+    cli_args: argparse.Namespace,
+    output_dir: str,  
+    clean_filename_suffix_cli: str,  
+    analysis_title_suffix_cli: str   
+) -> None:
     """
-    Runs the main analysis pipeline, processing data for "total" and specified/all years.
-    Generates outputs for "todas", "completadas", and "canceladas" statuses for each period.
+    Ejecuta el pipeline de análisis principal, iterando por años y estados.
     """
-    output_root_path = Path(args.out)
-    status_categories_map = {
-        "todas": None,  # Usar None para indicar que no se filtra por estado específico aquí
-        "completadas": "Completed",
-        "canceladas": [
-            "Cancelled",
-            "System cancelled",
-        ],  # Como lista para el filtro is_in
-    }
+    logger.error(f"CRITICAL_DEBUG_EXEC_ANALYSIS_START: ENTERING execute_analysis. cli_args.out (base global): {getattr(cli_args, 'out', 'N/A')}, output_dir (categoría): {output_dir}")
+    logger.error(f"CRITICAL_DEBUG_EXEC_ANALYSIS_START: df shape: {df.shape}, df columns: {df.columns}")
+    if "Year" in df.columns:
+        try:
+            unique_years_df = df.select(pl.col("Year").unique().sort(nulls_last=True)).to_series().to_list()
+            logger.error(f"CRITICAL_DEBUG_EXEC_ANALYSIS_START: Initial 'Year' unique values in df for this category: {unique_years_df}")
+        except Exception as e_year_exc:
+            logger.error(f"CRITICAL_DEBUG_EXEC_ANALYSIS_START: Error getting unique years from df: {e_year_exc}")
+    else:
+        logger.error("CRITICAL_DEBUG_EXEC_ANALYSIS_START: 'Year' column NOT in df.columns at start of execute_analysis for this category.")
 
-    # --- 1. Procesar el conjunto de datos "total" ---
-    logger.info("Starting processing for 'total' dataset.")
-    period_label_for_total = "total"
-    df_for_total_period = (
-        df_master_processed.clone()
-    )  # Trabajar con una copia para el periodo total
-
-    # Generar sufijos específicos para el periodo "total" si es necesario (generalmente no)
-    # El base_file_suffix y base_title_suffix ya reflejan filtros globales CLI
-
-    for status_key, status_filter_values in status_categories_map.items():
-        status_category_cleaned_name = status_key  # ej. "todas", "completadas"
-        logger.info(
-            f"Processing 'total' dataset, status: {status_category_cleaned_name}"
-        )
-
-        df_subset = df_for_total_period.clone()
-        status_internal_col_name = "status"  # Nombre interno de la columna de estado
-
-        if (
-            status_filter_values
-        ):  # Solo filtrar si hay valores de estado definidos (no para "todas")
-            if status_internal_col_name in df_subset.columns:
-                if isinstance(status_filter_values, list):
-                    df_subset = df_subset.filter(
-                        pl.col(status_internal_col_name).is_in(status_filter_values)
-                    )
-                else:
-                    df_subset = df_subset.filter(
-                        pl.col(status_internal_col_name) == status_filter_values
-                    )
+    years_to_analyze: List[str]
+    if cli_args.no_annual_breakdown:
+        logger.error("CRITICAL_DEBUG_YEARS: Análisis SIN desglose anual (solo total) debido a --no-annual-breakdown.")
+        years_to_analyze = ["total"]
+    elif cli_args.year and cli_args.year.lower() != "all": 
+        try:
+            year_int = int(cli_args.year)
+            logger.error(f"CRITICAL_DEBUG_YEARS: Análisis para el año específico {year_int} y 'total' debido a --year={cli_args.year}.")
+            years_to_analyze = [str(year_int), "total"]
+        except ValueError:
+            logger.error(f"CRITICAL_DEBUG_YEARS: --year inválido ('{cli_args.year}'). Comportamiento por defecto: todos los años disponibles y 'total'.")
+            if "Year" in df.columns and df["Year"].dtype in [pl.Int64, pl.Int32, pl.Int16, pl.Int8, pl.UInt64, pl.UInt32, pl.UInt16, pl.UInt8]:
+                years_available = sorted([str(y) for y in df.select(pl.col("Year").unique()).drop_nulls().to_series().to_list() if isinstance(y, int) and not isinstance(y, bool)])
+                years_to_analyze = years_available + ["total"] if years_available else ["total"]
+                logger.error(f"CRITICAL_DEBUG_YEARS: Años disponibles (fallback de ValueError en --year): {years_available}. Analizando: {years_to_analyze}")
             else:
-                logger.warning(
-                    f"Skipping status filter for '{status_category_cleaned_name}' in 'total': Column '{status_internal_col_name}' not found."
-                )
-
-        if df_subset.is_empty():
-            logger.warning(
-                f"No data for 'total' with status '{status_category_cleaned_name}' after filtering. Skipping."
-            )
-            continue
-
-        # El título y sufijo de archivo para el reporte de este subconjunto específico
-        # Podrían añadir el estado, ej. " (Total - Completadas)"
-        # O dejarlo como está y el nombre de la carpeta ya indica el estado.
-        # El README sugiere que el sufijo CLI ya está bien.
-        # El título del reporte HTML sí debería reflejar el periodo y estado.
-        # final_title = f"{period_label_for_total.capitalize()} Data{base_title_suffix} - {status_category_cleaned_name.capitalize()}"
-        # El reporter.py ya maneja el título del reporte, pasándole el `period_label_for_path` y `status_category_cleaned_name`
-
-        processed_df_subset, current_metrics = analyze(
-            df_subset,
-            config["column_mapping"],
-            config["sell_operation"],
-            # Pasar más args si analyze los necesita, ej. para outliers, event_date
-        )
-
-        if (
-            processed_df_subset.is_empty() and not current_metrics
-        ):  # O una comprobación más robusta
-            logger.warning(
-                f"Analysis of 'total' with status '{status_category_cleaned_name}' yielded no data or metrics. Skipping report."
-            )
-            continue
-
-        save_outputs(
-            df_to_plot_from=processed_df_subset,
-            metrics_to_save=current_metrics,
-            output_label=period_label_for_total,
-            status_subdir=status_category_cleaned_name,
-            base_output_dir=args.out,
-            file_name_suffix_from_cli=base_file_suffix,
-            title_suffix_from_cli=base_title_suffix,
-            col_map=config["column_mapping"],
-            cli_args=args,
-            config=config,
-        )
-    logger.info("Finished processing for 'total' dataset.")
-
-    # --- 2. Determinar y procesar años individuales ---
-    years_to_process_individually = []
-    process_all_available_years = args.year is None or args.year == "all"
-
-    if (
-        "Year" not in df_master_processed.columns
-        or df_master_processed["Year"].is_null().all()
-    ):
-        logger.warning(
-            "'Year' column not found or contains all nulls. Skipping annual breakdown."
-        )
+                logger.error("CRITICAL_DEBUG_YEARS: Columna 'Year' no disponible/no numérica para fallback de --year. Analizando solo 'total'.")
+                years_to_analyze = ["total"]
     else:
-        if process_all_available_years:
-            unique_years = (
-                df_master_processed["Year"].unique().drop_nulls().sort().to_list()
-            )
-            years_to_process_individually.extend(unique_years)
-            logger.info(f"Processing all available years: {unique_years}")
-        elif args.year:  # Un año específico fue dado
-            try:
-                specific_year = int(args.year)
-                # Verificar si ese año existe en los datos para evitar crear carpetas vacías innecesariamente
-                if df_master_processed.filter(
-                    pl.col("Year") == specific_year
-                ).is_empty():
-                    logger.warning(
-                        f"Year {specific_year} provided via --year, but no data found for this year after initial filters. Skipping this year."
-                    )
-                else:
-                    years_to_process_individually.append(specific_year)
-                    logger.info(f"Processing specific year: {specific_year}")
-            except ValueError:
-                logger.error(
-                    f"Invalid year format '{args.year}' provided with --year. Skipping annual processing."
-                )
+        logger.error("CRITICAL_DEBUG_YEARS: Análisis para todos los años disponibles y 'total' (default o --year=all o --year no especificado).")
+    if "Year" in df.columns and df["Year"].dtype in [pl.Int64, pl.Int32, pl.Int16, pl.Int8, pl.UInt64, pl.UInt32, pl.UInt16, pl.UInt8]:
+        years_available = sorted([str(y) for y in df.select(pl.col("Year").unique()).drop_nulls().to_series().to_list() if isinstance(y, int) and not isinstance(y, bool)])
+        if years_available:
+            years_to_analyze = years_available + ["total"]
+            logger.error(f"CRITICAL_DEBUG_YEARS: Años disponibles encontrados: {years_available}. Analizando: {years_to_analyze}")
+        else:
+            logger.error("CRITICAL_DEBUG_YEARS: No se encontraron años válidos en 'Year'. Analizando solo 'total'.")
+            years_to_analyze = ["total"]
+    else:
+        logger.error("CRITICAL_DEBUG_YEARS: Columna 'Year' no disponible/no numérica para desglose. Analizando solo 'total'.")
+        years_to_analyze = ["total"]
+    
+    logger.error(f"CRITICAL_DEBUG_YEARS: Final decision - Years to analyze: {years_to_analyze}")
 
-    if not years_to_process_individually:
-        logger.info("No specific years to process individually.")
+    all_period_data_for_unified_report: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
-    for year_val in years_to_process_individually:
-        period_label_for_year = str(year_val)
-        logger.info(f"Starting processing for year: {period_label_for_year}")
+    for year_period in years_to_analyze: 
+        logger.error(f"CRITICAL_DEBUG_LOOP: Iniciando ciclo para el periodo: {year_period}")
+        
+        period_specific_output_path = Path(output_dir) / year_period
+        # No crear aquí, save_outputs creará subdirectorios "reports", "tables", "figures" dentro de status_specific_output_path
 
-        df_year_specific_period = df_master_processed.filter(pl.col("Year") == year_val)
-
-        if (
-            df_year_specific_period.is_empty()
-        ):  # Doble chequeo, aunque uno arriba ya lo hizo para --year YYYY
-            logger.warning(
-                f"No data for year {year_val} after filtering from master. Skipping this year."
-            )
-            continue
-
-        # Los sufijos base_file_suffix y base_title_suffix de los filtros CLI siguen aplicando.
-        # El año se refleja en la estructura de carpetas (period_label_for_year).
-
-        for status_key, status_filter_values in status_categories_map.items():
-            status_category_cleaned_name = status_key
-            logger.info(
-                f"Processing year {period_label_for_year}, status: {status_category_cleaned_name}"
-            )
-
-            df_subset_year = df_year_specific_period.clone()
-            status_internal_col_name = (
-                "status"  # Nombre interno de la columna de estado
-            )
-
-            if status_filter_values:  # Solo filtrar si hay valores de estado definidos
-                if status_internal_col_name in df_subset_year.columns:
-                    if isinstance(status_filter_values, list):
-                        df_subset_year = df_subset_year.filter(
-                            pl.col(status_internal_col_name).is_in(status_filter_values)
-                        )
-                    else:
-                        df_subset_year = df_subset_year.filter(
-                            pl.col(status_internal_col_name) == status_filter_values
-                        )
-                else:
-                    logger.warning(
-                        f"Skipping status filter for '{status_category_cleaned_name}' in year '{period_label_for_year}': Column '{status_internal_col_name}' not found."
-                    )
-
-            if df_subset_year.is_empty():
-                logger.warning(
-                    f"No data for year {period_label_for_year} with status '{status_category_cleaned_name}'. Skipping."
-                )
+        df_for_this_period: pl.DataFrame
+        if year_period == "total":
+            df_for_this_period = df.clone()
+            logger.error(f"CRITICAL_DEBUG_FILTER: Para periodo '{year_period}', usando df de categoría original. Shape: {df_for_this_period.shape}")
+        else:
+            if "Year" in df.columns and df["Year"].dtype in [pl.Int64, pl.Int32, pl.Int16, pl.Int8, pl.UInt64, pl.UInt32, pl.UInt16, pl.UInt8]:
+                try:
+                    current_year_int = int(year_period)
+                    df_for_this_period = df.filter(pl.col("Year") == current_year_int).clone()
+                    logger.error(f"CRITICAL_DEBUG_FILTER: Para periodo '{year_period}', df filtrado por año. Shape: {df_for_this_period.shape}")
+                    if df_for_this_period.is_empty():
+                         logger.warning(f"No hay datos para el año {year_period} después de filtrar. Se omitirá el análisis detallado.")
+                         all_period_data_for_unified_report[year_period] = {} 
+                         continue 
+                except ValueError:
+                    logger.error(f"CRITICAL_DEBUG_FILTER: Error convirtiendo '{year_period}' a int. Saltando.")
+                    all_period_data_for_unified_report[year_period] = {}
+                    continue
+            else:
+                logger.error(f"CRITICAL_DEBUG_FILTER: Columna 'Year' no disponible/tipo incorrecto para filtrar '{year_period}'. Saltando.")
+                all_period_data_for_unified_report[year_period] = {}
                 continue
 
-            processed_df_subset_year, current_metrics_year = analyze(
-                df_subset_year,
-                config["column_mapping"],
-                config["sell_operation"],
-                # ... más args para analyze
-            )
+        logger.error(f"CRITICAL_DEBUG_PRE_STATUS_FILTER: Llegando al punto de llamar a _apply_status_filters_for_period para el periodo: {year_period}. Shape de df_for_this_period: {df_for_this_period.shape if 'df_for_this_period' in locals() else 'df_for_this_period no definido'}")
+        datasets_for_period_and_statuses = _apply_status_filters_for_period(
+            df_for_this_period, 
+            year_period, 
+            config
+        )
+        
+        # Inicializar el diccionario para el periodo actual ANTES del bucle de status
+        all_period_data_for_unified_report[year_period] = {} 
 
-            if processed_df_subset_year.is_empty() and not current_metrics_year:
-                logger.warning(
-                    f"Analysis of year {period_label_for_year} with status '{status_category_cleaned_name}' yielded no data or metrics. Skipping report."
-                )
+        for status_name, df_to_analyze_for_status in datasets_for_period_and_statuses.items(): 
+            if df_to_analyze_for_status.is_empty():
+                logger.info(f"No hay datos para '{year_period} - {status_name}'. Se omite análisis detallado.")
+                # Aún así, podríamos querer una entrada vacía o con un df vacío para el reporte unificado
+                all_period_data_for_unified_report[year_period][status_name] = {
+                    'df': df_to_analyze_for_status.clone(), # DataFrame vacío
+                    'metrics': {} # Métricas vacías
+                }
                 continue
+
+            logger.info(f"\n--- INICIO: Procesamiento Detallado para: {year_period.upper()} - {status_name.upper()} ---")
+            logger.info(f"  Analizando: {year_period} - {status_name} ({df_to_analyze_for_status.height} filas)")
+
+            status_specific_output_path = period_specific_output_path / status_name
+            
+            analysis_results_tuple = analyze(
+                df=df_to_analyze_for_status.clone(),
+                col_map=col_map,
+                sell_config=config,
+                cli_args=cli_args,
+            )
+            processed_df_from_analyze, metrics_dict_from_analyze = analysis_results_tuple
+
+            # Guardar en la estructura correcta para el reporte unificado
+            all_period_data_for_unified_report[year_period][status_name] = {
+                'df': processed_df_from_analyze.clone(), 
+                'metrics': metrics_dict_from_analyze
+            }
 
             save_outputs(
-                df_to_plot_from=processed_df_subset_year,
-                metrics_to_save=current_metrics_year,
-                output_label=period_label_for_year,  # Será "2023", "2024", etc.
-                status_subdir=status_category_cleaned_name,
-                base_output_dir=args.out,
-                file_name_suffix_from_cli=base_file_suffix,
-                title_suffix_from_cli=base_title_suffix,
-                col_map=config["column_mapping"],
-                cli_args=args,
+                metrics_to_save=metrics_dict_from_analyze, 
+                df_to_plot_from=processed_df_from_analyze.clone(),
                 config=config,
+                base_output_dir=output_dir, 
+                output_label=year_period, 
+                status_subdir=status_name, 
+                cli_args=cli_args,
+                col_map=col_map,
+                file_name_suffix_from_cli=clean_filename_suffix_cli,
+                title_suffix_from_cli=analysis_title_suffix_cli
             )
-        logger.info(f"Finished processing for year: {period_label_for_year}.")
+            logger.info(f"  \u2705 Guardado y finalizado: {year_period} - {status_name}")
 
-    logger.info("Analysis pipeline finished.")
+    if not cli_args.no_unified_report:
+        logger.info("\n\U0001f680 Generando reporte unificado global con gráficos consolidados...")
+        
+        reporter_unificado = UnifiedReporter(
+            base_output_dir=output_dir,
+            config=config,
+            cli_args=cli_args
+        )
+        unified_html_path = reporter_unificado.generate_unified_report(
+            all_period_data=all_period_data_for_unified_report
+        )
+        logger.info(f"  \u2705 Reporte unificado global completado. Verificar en: {unified_html_path}")
+    else:
+        logger.info("Generación de reporte unificado global omitida (--no-unified-report).")
+
+# No es necesario _execute_unified_only_analysis aquí si app.py lo maneja.

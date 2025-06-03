@@ -2,6 +2,8 @@ import polars as pl
 import logging
 from .utils import parse_amount # Importar parse_amount de utils
 from . import finance_utils # Usar import relativo si está en el mismo paquete src
+from . import counterparty_analyzer # Importar el módulo de análisis de contrapartes
+from . import session_analyzer # Importar el nuevo módulo de análisis de sesiones
 import numpy as np # Añadir numpy para FFT
 from sklearn.ensemble import IsolationForest
 from datetime import datetime, timedelta, timezone
@@ -136,84 +138,88 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
         (pl.col('MakerFee_num').fill_null(0.0) + pl.col('TakerFee_num').fill_null(0.0)).alias('TotalFee')
     )
 
-    logger.info("Iniciando procesamiento de columnas de tiempo con Polars...")
-    time_cols_created_or_verified = []
-    
-    if 'Match_time_local' not in df_processed.columns or not isinstance(df_processed.schema['Match_time_local'], pl.Datetime):
-        if match_time_utc_col in df_processed.columns:
-            logger.info(f"Generando columnas de tiempo a partir de '{match_time_utc_col}'.")
-            
-            df_processed = df_processed.with_columns([
-                pl.col(match_time_utc_col).str.to_datetime(time_unit='us').alias('Match_time_utc_dt_naive')
-            ])
-
-            df_processed = df_processed.with_columns([
-                pl.col('Match_time_utc_dt_naive').dt.replace_time_zone("UTC").alias('Match_time_utc_dt')
-            ])
-
-            uy_tz = 'America/Montevideo'
-            df_processed = df_processed.with_columns([
-                pl.col('Match_time_utc_dt').dt.convert_time_zone(uy_tz).alias('Match_time_local')
-            ])
-
-            df_processed = df_processed.with_columns([
-                pl.col('Match_time_local').dt.hour().alias('hour_local'),
-                pl.col('Match_time_local').dt.strftime('%Y-%m').alias('YearMonthStr'),
-                pl.col('Match_time_local').dt.year().alias('Year')
-            ]).drop('Match_time_utc_dt_naive')
-            
-            initial_rows = df_processed.height
-            df_processed = df_processed.drop_nulls(subset=['Match_time_utc_dt'])
-            rows_dropped = initial_rows - df_processed.height
-            if rows_dropped > 0:
-                logger.info(f"Filas eliminadas debido a valores nulos/inválidos en 'Match_time_utc_dt': {rows_dropped}")
-
-            if df_processed.height > 0 and isinstance(df_processed.schema['Match_time_utc_dt'], pl.Datetime):
-                time_cols_created_or_verified.extend(['Match_time_utc_dt', 'Match_time_local', 'hour_local', 'YearMonthStr', 'Year'])
-            else:
-                logger.warning(f"'{match_time_utc_col}' no pudo ser convertida a datetime válida o resultó en DataFrame vacío. Columnas de tiempo no creadas/actualizadas.")
+    logger.info("Verificando columnas de tiempo pre-procesadas (esperadas desde app.py)...")
+    required_time_cols = {
+        'Match_time_local': pl.Datetime,
+        'hour_local': pl.Int64, # Polars usa Int32 para hour, pero Int64 es seguro para la comprobación de tipo base.
+        'YearMonthStr': pl.String,
+        'Year': pl.Int64, # Polars usa Int32 para year.
+    }
+    missing_or_wrong_type_time_cols = []
+    for col_name, expected_type_class in required_time_cols.items():
+        if col_name not in df_processed.columns:
+            missing_or_wrong_type_time_cols.append(f"'{col_name}' (faltante)")
         else:
-            logger.warning(f"Columna de tiempo original mapeada a '{match_time_utc_col}' no encontrada. Columnas de tiempo no creadas.")
-            df_processed = df_processed.with_columns([
-                pl.lit(None, dtype=pl.Datetime(time_unit='us', time_zone=None)).alias('Match_time_local'),
-                pl.lit(None, dtype=pl.Int64).alias('hour_local'),
-                pl.lit(None, dtype=pl.String).alias('YearMonthStr'),
-                pl.lit(None, dtype=pl.Int64).alias('Year')
-            ])
-    elif 'Match_time_local' in df_processed.columns and isinstance(df_processed.schema['Match_time_local'], pl.Datetime):
-        logger.info("Columnas de tiempo base (Match_time_local, hour_local, YearMonthStr, Year) ya existen o se crearán si faltan.")
-        if 'hour_local' not in df_processed.columns:
-            df_processed = df_processed.with_columns(pl.col('Match_time_local').dt.hour().alias('hour_local'))
-            time_cols_created_or_verified.append('hour_local (derivada)')
-        else:
-            time_cols_created_or_verified.append('hour_local (existente)')
-            
-        if 'YearMonthStr' not in df_processed.columns:
-            df_processed = df_processed.with_columns(pl.col('Match_time_local').dt.strftime('%Y-%m').alias('YearMonthStr'))
-            time_cols_created_or_verified.append('YearMonthStr (derivada)')
-        else:
-            time_cols_created_or_verified.append('YearMonthStr (existente)')
+            actual_type = df_processed.schema.get(col_name)
+            # Comprobación genérica de tipo
+            if expected_type_class == pl.Datetime and not isinstance(actual_type, pl.Datetime):
+                 missing_or_wrong_type_time_cols.append(f"'{col_name}' (tipo incorrecto: {actual_type}, esperado: Datetime)")
+            elif expected_type_class == pl.String and not isinstance(actual_type, pl.String):
+                 missing_or_wrong_type_time_cols.append(f"'{col_name}' (tipo incorrecto: {actual_type}, esperado: String)")
+            elif expected_type_class == pl.Int64 and not isinstance(actual_type, (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64)): # Comprobar si es algún tipo entero de Polars
+                 missing_or_wrong_type_time_cols.append(f"'{col_name}' (tipo incorrecto: {actual_type}, esperado: Integer)")
 
-        if 'Year' not in df_processed.columns:
-            df_processed = df_processed.with_columns(pl.col('Match_time_local').dt.year().alias('Year'))
-            time_cols_created_or_verified.append('Year (derivada)')
-        else:
-            time_cols_created_or_verified.append('Year (existente)')
+    if missing_or_wrong_type_time_cols:
+        logger.warning(
+            "Una o más columnas de tiempo pre-procesadas faltan o tienen tipo incorrecto. "
+            f"Detalles: {', '.join(missing_or_wrong_type_time_cols)}. "
+            "Esto puede afectar análisis posteriores. "
+            "Asegúrese que app.py está generando estas columnas correctamente."
+        )
     else:
-        logger.warning(f"'Match_time_local' existe pero no es Datetime. Forzando columnas de tiempo relacionadas a nulos.")
-        df_processed = df_processed.with_columns([
-                pl.lit(None, dtype=pl.Datetime(time_unit='us', time_zone=None)).alias('Match_time_local'),
-                pl.lit(None, dtype=pl.Int64).alias('hour_local'),
-                pl.lit(None, dtype=pl.String).alias('YearMonthStr'),
-                pl.lit(None, dtype=pl.Int64).alias('Year')
-            ])
-
-    if time_cols_created_or_verified:
-        logger.info(f"Columnas de tiempo procesadas/verificadas: {'; '.join(time_cols_created_or_verified)}.")
-    logger.info("Procesamiento de columnas de tiempo completado.")
+        logger.info("Columnas de tiempo pre-procesadas verificadas y parecen correctas.")
 
     metrics: dict[str, pl.DataFrame | pl.Series] = {}
     logger.info("Calculando métricas con Polars...")
+
+    # --- NUEVO: Análisis de Contrapartes ---
+    logger.info("Iniciando análisis avanzado de contrapartes...")
+    try:
+        # Llamada a la función principal de análisis de contrapartes del módulo
+        # Esta función ahora encapsula toda la lógica, incluyendo los joins internos.
+        counterparty_final_metrics_df = counterparty_analyzer.analyze_counterparties(
+            df_processed 
+        ) 
+        
+        if counterparty_final_metrics_df is not None and not counterparty_final_metrics_df.is_empty():
+            logger.info(f"[analyzer.py:analyze] Métricas de contrapartes CONSOLIDADAS RECIBIDAS. Schema: {counterparty_final_metrics_df.schema}, Altura: {counterparty_final_metrics_df.height}")
+            metrics['counterparty_consolidated_stats'] = counterparty_final_metrics_df
+        else:
+            logger.warning(f"[analyzer.py:analyze] No se generaron métricas consolidadas de contrapartes o el DF está vacío.")
+            metrics['counterparty_consolidated_stats'] = pl.DataFrame() # Asegurar que la clave exista
+        
+        logger.info(f"[analyzer.py:analyze] Claves en 'metrics' DESPUÉS del análisis de contrapartes: {list(metrics.keys())}")
+        if 'counterparty_consolidated_stats' in metrics and isinstance(metrics['counterparty_consolidated_stats'], pl.DataFrame):
+            logger.info(f"[analyzer.py:analyze] 'counterparty_consolidated_stats' en 'metrics' es DataFrame Polars con altura: {metrics['counterparty_consolidated_stats'].height}")
+        elif 'counterparty_consolidated_stats' in metrics:
+             logger.warning(f"[analyzer.py:analyze] 'counterparty_consolidated_stats' en 'metrics' ES {type(metrics['counterparty_consolidated_stats'])} y no pl.DataFrame.")
+        else:
+            logger.warning(f"[analyzer.py:analyze] 'counterparty_consolidated_stats' NO ESTÁ en 'metrics'.")
+
+    except Exception as e:
+        logger.error(f"[analyzer.py:analyze] Error principal en el bloque de análisis de contrapartes (llamada a counterparty_analyzer.analyze_counterparties): {e}")
+        logger.error(f"Tipo de error: {type(e)}")
+        metrics['counterparty_consolidated_stats'] = pl.DataFrame() # Registrar DF vacío en caso de error
+
+    # --- NUEVO: Análisis de Sesiones de Trading ---
+    logger.info("Iniciando análisis avanzado de sesiones de trading...")
+    try:
+        session_data = session_analyzer.analyze_trading_sessions(df_processed, session_gap_minutes=30)
+        if session_data:
+            # Agregar todas las métricas de sesiones al diccionario principal
+            for key, value in session_data.items():
+                metrics[f'session_{key}'] = value
+            
+            # Generar insights automáticos
+            insights = session_analyzer.get_session_insights(session_data)
+            metrics['session_insights'] = pl.from_dicts([insights]) if insights else pl.DataFrame()
+            
+            logger.info(f"Análisis de sesiones completado exitosamente. {len(session_data)} métricas generadas.")
+        else:
+            logger.warning("No se generaron métricas de sesiones")
+    except Exception as e:
+        logger.error(f"Error en análisis de sesiones: {e}")
+        # Continuar con el análisis normal aunque falle el análisis de sesiones
 
     df_completed_for_sales_summary = pl.DataFrame()
     if status_col in df_processed.columns:
@@ -342,149 +348,97 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
         metrics['effective_liquidity_index'] = pl.DataFrame({'index_value': [None], 'mean_quantity': [mean_qty], 'median_quantity': [median_qty]})
 
     logger.info("Detectando Whale Trades (TotalPrice_num > mean + 3*std)...")
-    if 'TotalPrice_num' in df_processed.columns and not df_processed.filter(pl.col('TotalPrice_num').is_not_null()).is_empty():
-        total_price_series = df_processed['TotalPrice_num'].drop_nulls()
-        if not total_price_series.is_empty():
-            mean_total_price = total_price_series.mean()
-            std_total_price = total_price_series.std()
-
-            if mean_total_price is not None and std_total_price is not None:
-                whale_threshold = mean_total_price + (3 * std_total_price)
-                df_whale_trades = df_processed.filter(pl.col('TotalPrice_num') > whale_threshold)
-                
-                cols_for_whale_report = [ # Columnas que podrían ser interesantes para el reporte de whale trades
-                    order_number_col, asset_type_col, fiat_type_col, 'Price_num', 'Quantity_num', 'TotalPrice_num', 'Match_time_local'
-                ]
-                # Filtrar solo las columnas que existen en df_whale_trades
-                actual_cols_for_whale_report = [col for col in cols_for_whale_report if col in df_whale_trades.columns]
-
-                if not df_whale_trades.is_empty() and actual_cols_for_whale_report:
-                    metrics['whale_trades'] = df_whale_trades.select(actual_cols_for_whale_report).sort('TotalPrice_num', descending=True)
-                    logger.info(f"Se detectaron {df_whale_trades.height} whale trades con umbral {whale_threshold:.2f}.")
-                else:
-                    logger.info(f"No se detectaron whale trades con umbral {whale_threshold:.2f} o faltan columnas para el reporte.")
-                    metrics['whale_trades'] = pl.DataFrame()
-            else:
-                logger.warning("No se pudo calcular la media o desviación estándar de TotalPrice_num para detectar whale trades.")
-                metrics['whale_trades'] = pl.DataFrame()
+    if 'TotalPrice_num' in df_processed.columns and df_processed['TotalPrice_num'].is_not_null().any():
+        mean_total_price = df_processed['TotalPrice_num'].mean()
+        std_total_price = df_processed['TotalPrice_num'].std()
+        if mean_total_price is not None and std_total_price is not None:
+            whale_trade_threshold = mean_total_price + 3 * std_total_price
+            df_processed = df_processed.with_columns(
+                (pl.col('TotalPrice_num') > whale_trade_threshold).alias('is_whale_trade')
+            )
+            whale_trades_count = df_processed.filter(pl.col('is_whale_trade')).height
+            logger.info(f"Se detectaron {whale_trades_count} whale trades con umbral {whale_trade_threshold:.2f}.")
         else:
-            logger.warning("La serie TotalPrice_num está vacía después de quitar nulos. No se detectarán whale trades.")
-            metrics['whale_trades'] = pl.DataFrame()
+            logger.warning("No se pudo calcular el umbral de whale trades (mean o std es nulo). Saltando detección.")
+            df_processed = df_processed.with_columns(pl.lit(False).alias('is_whale_trade'))
     else:
-        logger.warning("Columna 'TotalPrice_num' no disponible para detectar whale trades.")
-        metrics['whale_trades'] = pl.DataFrame()
+        logger.warning("Columna 'TotalPrice_num' no disponible o vacía para detección de Whale Trades. Saltando detección.")
+        df_processed = df_processed.with_columns(pl.lit(False).alias('is_whale_trade'))
 
     logger.info("Analizando comparación Antes/Después de --event-date...")
-    event_date_str = cli_args.get('event_date') if cli_args else None
-    if event_date_str:
+    event_date_str = getattr(cli_args, 'event_date', None) if cli_args else None
+    if event_date_str and 'Match_time_local' in df_processed.columns and isinstance(df_processed.schema['Match_time_local'], pl.Datetime):
         try:
-            # Asumir que event_date_str es YYYY-MM-DD. Convertir a datetime UTC al inicio del día.
-            event_dt_utc = datetime.strptime(event_date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-            logger.info(f"Fecha de evento para comparación: {event_dt_utc}")
-
-            if 'Match_time_utc_dt' in df_processed.columns and df_processed['Match_time_utc_dt'].dtype == pl.Datetime(time_unit='us', time_zone='UTC'):
-                # Definir ventanas de 24h antes y después
-                before_window_start = event_dt_utc - timedelta(hours=24)
-                before_window_end = event_dt_utc
-                after_window_start = event_dt_utc
-                after_window_end = event_dt_utc + timedelta(hours=24)
-
-                df_before_event = df_processed.filter(
-                    (pl.col('Match_time_utc_dt') >= before_window_start) &
-                    (pl.col('Match_time_utc_dt') < before_window_end)
-                )
-                df_after_event = df_processed.filter(
-                    (pl.col('Match_time_utc_dt') >= after_window_start) &
-                    (pl.col('Match_time_utc_dt') < after_window_end)
-                )
-
-                event_comparison_stats = {}
-                for period_label, df_period in [("24h_before_event", df_before_event), ("24h_after_event", df_after_event)]:
-                    if not df_period.is_empty():
-                        stats = {
-                            'num_trades': df_period.height,
-                            'total_volume_asset': df_period['Quantity_num'].sum() if 'Quantity_num' in df_period.columns else None,
-                            'total_volume_fiat': df_period['TotalPrice_num'].sum() if 'TotalPrice_num' in df_period.columns else None,
-                            'avg_price': df_period['Price_num'].mean() if 'Price_num' in df_period.columns else None,
-                            'median_price': df_period['Price_num'].median() if 'Price_num' in df_period.columns else None
-                        }
-                        event_comparison_stats[period_label] = stats
-                    else:
-                        event_comparison_stats[period_label] = {'num_trades': 0, 'total_volume_asset': 0, 'total_volume_fiat': 0, 'avg_price': None, 'median_price': None}
-                
-                if event_comparison_stats:
-                    metrics['event_comparison_stats'] = pl.from_dicts([ # Convertir a DataFrame para consistencia
-                        dict(period=k, **v) for k,v in event_comparison_stats.items()
-                    ])
-                    logger.info(f"Estadísticas comparativas Antes/Después del evento calculadas: {event_comparison_stats}")
-                else:
-                    metrics['event_comparison_stats'] = pl.DataFrame()
-            else:
-                logger.warning("Columna 'Match_time_utc_dt' (Datetime UTC) no disponible o tipo incorrecto. No se puede hacer comparación Antes/Después.")
-                metrics['event_comparison_stats'] = pl.DataFrame()
+            event_date = datetime.strptime(event_date_str, "%Y-%m-%d").replace(tzinfo=df_processed['Match_time_local'].dtype.time_zone) 
+            df_before_event = df_processed.filter(pl.col('Match_time_local') < event_date)
+            df_after_event = df_processed.filter(pl.col('Match_time_local') >= event_date)
+            metrics['before_event_stats'] = df_before_event.select(pl.mean('TotalPrice_num').alias('avg_volume_before'), pl.count().alias('ops_before'))
+            metrics['after_event_stats'] = df_after_event.select(pl.mean('TotalPrice_num').alias('avg_volume_after'), pl.count().alias('ops_after'))
+            logger.info(f"Análisis Antes/Después de evento {event_date_str} completado.")
         except ValueError:
-            logger.error(f"Formato de --event-date incorrecto: '{event_date_str}'. Debe ser YYYY-MM-DD.")
-            metrics['event_comparison_stats'] = pl.DataFrame()
-        except Exception as e_event:
-            logger.error(f"Error durante análisis comparativo Antes/Después: {e_event}")
-            metrics['event_comparison_stats'] = pl.DataFrame()
+            logger.warning(f"Formato de --event-date '{event_date_str}' inválido. Use YYYY-MM-DD. Se omite análisis comparativo.")
+        except Exception as e:
+            logger.error(f"Error en análisis comparativo Antes/Después: {e}")
     else:
-        logger.info("--event-date no proporcionado. Se omite análisis comparativo Antes/Después.")
-        metrics['event_comparison_stats'] = pl.DataFrame() # Vacío si no se activa
+        if event_date_str:
+            logger.info(f"--event-date '{event_date_str}' proporcionado, pero falta Match_time_local o no es Datetime. Se omite análisis comparativo.")
+        else:
+            logger.info("--event-date no proporcionado. Se omite análisis comparativo Antes/Después.")
 
     logger.info("Iniciando Detección de Outliers (Isolation Forest) en Price_num...")
-    if cli_args and getattr(cli_args, 'detect_outliers', False):
-        if 'Price_num' in df_processed.columns and not df_processed.filter(pl.col('Price_num').is_not_null()).is_empty():
-            df_for_outliers = df_processed.select(['Price_num', order_number_col, 'Match_time_local']).drop_nulls(subset=['Price_num'])
-            
-            if df_for_outliers.height > 1: # IsolationForest necesita al menos 2 muestras
-                prices_for_model = df_for_outliers.select('Price_num').to_numpy()
+    detect_outliers_flag = getattr(cli_args, 'detect_outliers', False) if cli_args else False
+    if detect_outliers_flag and 'Price_num' in df_processed.columns and df_processed['Price_num'].is_not_null().any():
+        contamination_param = getattr(cli_args, 'outliers_contamination', 'auto') if cli_args else 'auto'
+        n_estimators_param = getattr(cli_args, 'outliers_n_estimators', 100) if cli_args else 100
+        random_state_param = getattr(cli_args, 'outliers_random_state', 42) if cli_args else 42 
+        
+        logger.info(f"Parámetros de Isolation Forest: contamination={contamination_param}, n_estimators={n_estimators_param}, random_state={random_state_param}")
+
+        # Eliminar nulos y convertir a NumPy array para IsolationForest
+        price_data_no_nulls = df_processed.select(pl.col('Price_num').filter(pl.col('Price_num').is_not_null())).to_numpy().reshape(-1, 1)
+        
+        if price_data_no_nulls.shape[0] > 0:
+            try:
+                iso_forest = IsolationForest(
+                    contamination=contamination_param if contamination_param != 'auto' else 'auto', 
+                    n_estimators=n_estimators_param,
+                    random_state=random_state_param
+                )
+                outlier_preds = iso_forest.fit_predict(price_data_no_nulls)
                 
-                try:
-                    iso_forest = IsolationForest(
-                        n_estimators=cli_args.get('outliers_n_estimators', 100),
-                        contamination=float(cli_args.get('outliers_contamination', 'auto')), # 'auto' o un float
-                        random_state=cli_args.get('outliers_random_state', 42),
-                        n_jobs=-1 # Usar todos los procesadores disponibles
-                    )
-                    iso_forest.fit(prices_for_model)
-                    
-                    # Predecir outliers (-1 para outliers, 1 para inliers)
-                    outlier_predictions = iso_forest.predict(prices_for_model)
-                    
-                    # Añadir predicciones al DataFrame temporal
-                    df_for_outliers = df_for_outliers.with_columns(
-                        pl.Series(name="is_outlier", values=(outlier_predictions == -1))
-                    )
-                    
-                    # Contar outliers
-                    num_outliers = df_for_outliers.filter(pl.col("is_outlier")).height
-                    logger.info(f"Detección de Outliers completada. Se encontraron {num_outliers} outliers en 'Price_num'.")
-
-                    # Preparar DataFrame de información de outliers para métricas
-                    # Seleccionar columnas relevantes para el reporte de outliers
-                    outlier_report_cols = [order_number_col, 'Match_time_local', 'Price_num']
-                    # Verificar que las columnas existan en df_for_outliers
-                    actual_outlier_report_cols = [col for col in outlier_report_cols if col in df_for_outliers.columns]
-                    
-                    if actual_outlier_report_cols:
-                         metrics['outlier_info'] = df_for_outliers.filter(pl.col("is_outlier")).select(actual_outlier_report_cols).sort('Match_time_local')
-                    else:
-                        logger.warning("No se pudieron seleccionar columnas para el reporte de outliers, puede que falten.")
-                        metrics['outlier_info'] = pl.DataFrame()
-
-                except Exception as e_iso:
-                    logger.error(f"Error durante la detección de outliers con IsolationForest: {e_iso}")
-                    metrics['outlier_info'] = pl.DataFrame() # Devolver DataFrame vacío en caso de error
-            else:
-                logger.info("No hay suficientes datos (después de quitar nulos en Price_num) para ejecutar IsolationForest. Se requieren al menos 2 muestras.")
-                metrics['outlier_info'] = pl.DataFrame()
+                # Añadir predicciones al DataFrame original. Esto es un poco más complejo
+                # porque necesitamos alinear las predicciones (que son solo para no nulos)
+                # con el DataFrame original que puede tener nulos en Price_num.
+                
+                # 1. Crear un df temporal con los índices originales de los no nulos
+                df_with_indices = df_processed.with_row_count("original_index")
+                price_data_indices = df_with_indices.filter(pl.col('Price_num').is_not_null()).select(["original_index"])
+                
+                # 2. Crear df de predicciones con esos índices
+                predictions_df = pl.DataFrame({
+                    'original_index': price_data_indices['original_index'],
+                    'is_outlier_price': (outlier_preds == -1) # -1 significa outlier
+                })
+                
+                # 3. Unir de vuelta al df_processed
+                df_processed = df_processed.with_row_count("original_index") \
+                                        .join(predictions_df, on="original_index", how="left") \
+                                        .with_columns(pl.col('is_outlier_price').fill_null(False)) # Llenar nulos (donde Price_num era nulo) con False
+                                        
+                outliers_found = df_processed.filter(pl.col('is_outlier_price')).height
+                logger.info(f"Detección de Outliers completada. {outliers_found} outliers de precio identificados.")
+            except Exception as e_iso:
+                logger.error(f"Error durante la detección de outliers con Isolation Forest: {e_iso}")
+                df_processed = df_processed.with_columns(pl.lit(False).alias('is_outlier_price'))
         else:
-            logger.info("Columna 'Price_num' no disponible o vacía después de quitar nulos. No se ejecutará la detección de outliers.")
-            metrics['outlier_info'] = pl.DataFrame()
+            logger.info("No hay datos de precio válidos (no nulos) para la detección de outliers.")
+            df_processed = df_processed.with_columns(pl.lit(False).alias('is_outlier_price'))
     else:
-        logger.info("Detección de outliers no activada mediante argumento CLI (--detect_outliers).")
-        metrics['outlier_info'] = pl.DataFrame() # DataFrame vacío si no está activada
+        if not detect_outliers_flag:
+            logger.info("Detección de outliers no activada mediante argumento CLI (--detect_outliers).")
+        else:
+            logger.info("Columna 'Price_num' no disponible o todos sus valores son nulos. No se ejecutó la detección de outliers.")
+        df_processed = df_processed.with_columns(pl.lit(False).alias('is_outlier_price'))
 
     logger.info("Análisis finalizado.")
     return df_processed, metrics

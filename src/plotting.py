@@ -438,8 +438,9 @@ def plot_pie(
     # Podríamos explotar el slice más grande si es útil
     # if exploded_slices: exploded_slices[0] = 0.05 # Ejemplo: explotar el primer slice (el más grande)
 
-    plt.figure(figsize=(12, 8))  # Tamaño más grande para mejor legibilidad
-    wedges, texts, autotexts = plt.pie(
+    plt.figure(figsize=(12, 8))
+    # Cambiar el unpacking a dos valores, ya que autopct=None
+    wedges, texts = plt.pie(
         slices,
         labels=None,  # Las etiquetas se manejan en la leyenda para evitar superposición
         autopct=None,  # El porcentaje ya está en las etiquetas de la leyenda
@@ -1550,50 +1551,50 @@ def plot_activity_heatmap(
         df_plot[day_of_week_col], categories=days_ordered, ordered=True
     )
 
-    # 4. Crear la matriz de actividad (pivot table)
-    try:
-        if actual_agg_func == "count":
-            # Usar order_number o cualquier otra columna no nula solo para que pivot_table funcione con aggfunc='count'
-            # Si value_col es, por ejemplo, 'order_number' y existe, se puede usar. Si no, pivot_table con aggfunc='size' no necesita values.
-            # Para mantener la flexibilidad con value_col, si es count, y value_col existe, la usamos, sino usamos 'size'
-            if value_col in df_plot.columns:
-                activity_matrix = df_plot.pivot_table(
-                    values=value_col,
-                    index=day_of_week_col,
-                    columns=hour_col,
-                    aggfunc="count",
-                    fill_value=0,
-                    observed=False,
-                )
-            else:  # Si la columna de valor especificada para count no existe, simplemente contamos las filas
-                activity_matrix = df_plot.pivot_table(
-                    index=day_of_week_col,
-                    columns=hour_col,
-                    aggfunc="size",
-                    fill_value=0,
-                    observed=False,
-                )
-        elif actual_agg_func == "sum":
-            activity_matrix = df_plot.pivot_table(
-                values=value_col,
-                index=day_of_week_col,
-                columns=hour_col,
-                aggfunc="sum",
-                fill_value=0,
-                observed=False,
+    # 4. Asegurar que value_col (si es para suma) sea numérica
+    if actual_agg_func == "sum":
+        if value_col not in df_plot.columns:
+            logger.warning(
+                f"Columna de valor '{value_col}' no encontrada para heatmap de suma.{title_suffix}"
             )
-    except Exception as e_pivot:
-        logger.error(
-            f"Error durante pivot_table para Heatmap: {e_pivot}.{title_suffix}"
+            return None
+        if not pd.api.types.is_numeric_dtype(df_plot[value_col]):
+            try:
+                df_plot[value_col] = pd.to_numeric(df_plot[value_col], errors='coerce')
+                # Es importante rellenar NaNs DESPUÉS de la conversión a numérico, 
+                # o pivot_table podría mantener el dtype object si hay NaNs.
+                # No rellenaremos aquí directamente, pivot_table lo hará con fill_value.
+            except Exception as e_conv:
+                logger.error(
+                    f"Error convirtiendo la columna '{value_col}' a numérica para heatmap de suma: {e_conv}{title_suffix}"
+                )
+                return None
+
+    # 5. Crear la matriz de actividad usando pivot_table
+    try:
+        activity_matrix = df_plot.pivot_table(
+            index=day_of_week_col,
+            columns=hour_col,
+            values=value_col,
+            aggfunc=actual_agg_func,
+            fill_value=0  # Añadir fill_value=0 para manejar NaNs y asegurar tipo numérico
         )
+    except Exception as e_pivot:
+        logger.error(f"Error creando pivot_table para heatmap: {e_pivot}{title_suffix}")
         return None
 
-    # 5. Asegurar que todas las horas (0-23) y días estén presentes
-    for hour_val in range(24):
-        if hour_val not in activity_matrix.columns:
-            activity_matrix[hour_val] = 0
-    activity_matrix = activity_matrix.reindex(columns=sorted(activity_matrix.columns))
-    activity_matrix = activity_matrix.reindex(index=days_ordered, fill_value=0)
+    # Ordenar días de la semana y horas
+    days_ordered_spanish = [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday",
+    ]
+    hours_ordered = range(24)
+    activity_matrix = activity_matrix.reindex(index=days_ordered_spanish, columns=hours_ordered, fill_value=0)
 
     if (
         activity_matrix.empty
@@ -1611,6 +1612,27 @@ def plot_activity_heatmap(
         logger.warning(
             f"Matriz de actividad vacía o con todos los valores cero para Heatmap.{title_suffix}"
         )
+        return None
+
+    # Asegurar que la matriz es numérica antes de pasarla al heatmap
+    try:
+        if actual_agg_func.lower() == "count": # Podría ser 'size' implícitamente
+            activity_matrix = activity_matrix.astype(np.int64).fillna(0)
+        else:  # 'sum'
+            activity_matrix = activity_matrix.astype(float).fillna(0)
+
+        # Log para depurar dtypes
+        logger.info(f"DEBUG_HEATMAP (plot_activity_heatmap): Dtypes de activity_matrix ANTES de heatmap para {title_suffix} (valor: {value_col}, agg: {actual_agg_func}):")
+        for col_debug in activity_matrix.columns:
+            logger.info(f"DEBUG_HEATMAP (plot_activity_heatmap):   Columna '{col_debug}': {activity_matrix[col_debug].dtype}")
+        if not activity_matrix.empty:
+            unique_dtypes = activity_matrix.dtypes.unique()
+            logger.info(f"DEBUG_HEATMAP (plot_activity_heatmap):   Dtypes únicos en la matriz: {unique_dtypes}")
+        else:
+            logger.info("DEBUG_HEATMAP (plot_activity_heatmap):   La matriz activity_matrix está vacía.")
+
+    except Exception as e_final_cast:
+        logger.error(f"Error en el casteo final de activity_matrix para heatmap (plot_activity_heatmap): {e_final_cast}{title_suffix}")
         return None
 
     # 6. Graficar el heatmap
