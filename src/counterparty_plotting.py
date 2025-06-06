@@ -9,6 +9,7 @@ import polars as pl
 from . import utils
 import numpy as np
 from typing import Dict, List, Union, Optional
+from .plot_utils import set_default_style, save_figure
 
 logger = logging.getLogger(__name__)
 sns.set_theme(style="whitegrid")
@@ -260,6 +261,7 @@ def plot_vip_tier_distribution(
         return saved_paths
     
     try:
+        set_default_style()
         # Contar por tier
         tier_counts = vip_df['vip_tier'].value_counts()
         
@@ -296,13 +298,9 @@ def plot_vip_tier_distribution(
         )
         ax2.set_title(f'Proporción de Tiers VIP{title_suffix}', fontsize=14, fontweight='bold')
         
-        plt.tight_layout()
-        
-        # Guardar
+        # Guardar utilizando utilidades
         filename = f"counterparty_vip_tier_distribution{file_identifier}.png"
-        file_path = os.path.join(out_dir, filename)
-        plt.savefig(file_path, dpi=300, bbox_inches='tight')
-        plt.close()
+        file_path = save_figure(fig, out_dir, filename, dpi=300)
         saved_paths.append(file_path)
         
         logger.info(f"Distribución VIP guardada: {file_path}")

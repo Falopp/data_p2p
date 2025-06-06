@@ -334,6 +334,23 @@ def analyze(df: pl.DataFrame, col_map: dict, sell_config: dict, cli_args: dict |
             logger.warning(f"No se pueden calcular monthly_fiat. DataFrame vacío o faltan columnas.")
             metrics['monthly_fiat'] = pl.DataFrame()
 
+        # --- NUEVO: Cálculo de serie mensual de operaciones y volumen para serie acumulada ---
+        logger.info("Calculando monthly_ops y monthly_volume para serie acumulada...")
+        if 'YearMonthStr' in df_processed.columns and order_number_col in df_processed.columns and 'TotalPrice_num' in df_processed.columns:
+            monthly_ops = df_processed.group_by('YearMonthStr')\
+                                .agg(pl.count(order_number_col).alias('monthly_ops'))\
+                                .sort('YearMonthStr')
+            metrics['monthly_ops'] = monthly_ops
+            monthly_volume = df_processed.group_by('YearMonthStr')\
+                                .agg(pl.sum('TotalPrice_num').alias('monthly_volume'))\
+                                .sort('YearMonthStr')
+            metrics['monthly_volume'] = monthly_volume
+        else:
+            logger.warning("No se pudo calcular monthly_ops/monthly_volume para serie acumulada; faltan columnas.")
+            metrics['monthly_ops'] = pl.DataFrame()
+            metrics['monthly_volume'] = pl.DataFrame()
+        # --- FIN: Cálculo de serie mensual de operaciones y volumen para serie acumulada ---
+
     if status_col in df_processed.columns:
         metrics['status_counts'] = df_processed[status_col].value_counts()
     else:

@@ -10,9 +10,9 @@ from . import utils
 import matplotlib.ticker as mticker
 from typing import Union
 import numpy as np
+from .plot_utils import set_default_style, create_figure, save_figure
 
 logger = logging.getLogger(__name__)
-sns.set_theme(style="whitegrid")
 
 # --- Función Auxiliar para Adaptar Temporalidades ---
 
@@ -78,25 +78,22 @@ def plot_hourly(
     x_category_labels = x_tick_positions.astype(
         str
     )  # Etiquetas de categoría como string ('0', '1', ..., '23')
-    y_data = pd.to_numeric(hourly_counts_reindexed.values, errors="coerce").fillna(0)
+    # Convertir a pandas Series para usar fillna
+    y_data_raw = pd.to_numeric(hourly_counts_reindexed.values, errors="coerce")
+    y_data = pd.Series(y_data_raw).fillna(0)
 
-    plt.figure(figsize=(14, 8))  # Ligeramente más ancho para el título y subtítulo
-
-    # Usar el primer color de la paleta activa de Seaborn
+    # Estilo y figura
+    set_default_style()
+    fig, ax = create_figure(figsize=(14, 8))
     bar_color = sns.color_palette()[0]
-    ax = sns.barplot(
-        x=x_tick_positions, y=y_data, color=bar_color
-    )  # Quitamos palette para usar color uniforme
+    ax = sns.barplot(x=x_tick_positions, y=y_data, color=bar_color)
 
     main_title = f"Distribución de Operaciones P2P por Hora del Día{title_suffix}"
     fig_text_explanation = "Este gráfico muestra el número total de operaciones P2P realizadas en cada hora del día (zona horaria local).\\nPermite identificar los periodos de mayor y menor actividad."
 
-    plt.suptitle(
-        main_title, fontsize=16, y=1.02
-    )  # y=1.02 para dar espacio si el título es largo
-    ax.set_title(
-        fig_text_explanation, fontsize=10, pad=20
-    )  # Usar ax.set_title como subtítulo
+    # Títulos
+    fig.suptitle(main_title, fontsize=16, y=1.02)
+    ax.set_title(fig_text_explanation, fontsize=10, pad=20)
 
     ax.set_xlabel("Hora del Día (Local, 0-23)", fontsize=12)
     ax.set_ylabel("Cantidad de Operaciones", fontsize=12)
@@ -127,15 +124,14 @@ def plot_hourly(
         rect=[0, 0, 1, 0.96]
     )  # Ajustar rect para dejar espacio para suptitle
 
-    file_path = os.path.join(out_dir, f"hourly_counts{file_identifier}.png")
+    # Guardar con utilidades
+    filename = f"hourly_counts{file_identifier}.png"
     try:
-        plt.savefig(file_path, dpi=300)  # Añadir DPI
+        file_path = save_figure(fig, out_dir, filename, dpi=300)
         logger.info(f"Gráfico horario guardado en: {file_path}")
-        plt.close()
         return file_path
     except Exception as e:
-        logger.error(f"Error al guardar el gráfico horario {file_path}: {e}")
-        plt.close()
+        logger.error(f"Error al guardar el gráfico horario: {e}")
         return None
 
 
@@ -3749,4 +3745,50 @@ def plot_daily_average(
         finally:
             plt.close()
 
+    return saved_paths
+
+
+def plot_cumulative(
+    time_df: pd.DataFrame,
+    x_col: str,
+    y_cols: list[str],
+    out_dir: str,
+    title: str = "Serie Temporal Acumulada",
+    file_identifier: str = "_general",
+    title_suffix: str = "",
+) -> list[str]:
+    """Genera gráficos de series acumuladas para una o varias columnas a lo largo del tiempo."""
+    saved_paths: list[str] = []
+    if time_df.empty or x_col not in time_df.columns:
+        logger.info(f"No hay datos para la serie acumulada{title_suffix}.")
+        return saved_paths
+    # Ordenar por la columna de tiempo
+    df_sorted = time_df.sort_values(x_col)
+    # Intentar convertir la columna de tiempo a datetime si corresponde
+    try:
+        df_sorted[x_col] = pd.to_datetime(df_sorted[x_col], format="%Y-%m")
+    except Exception:
+        pass
+    for y_col in y_cols:
+        if y_col not in df_sorted.columns:
+            logger.warning(f"Columna '{y_col}' no encontrada para serie acumulada.")
+            continue
+        cum_col = f"cumulative_{y_col}"
+        df_sorted[cum_col] = df_sorted[y_col].cumsum()
+        set_default_style()
+        fig, ax = create_figure(figsize=(12, 6))
+        ax.plot(df_sorted[x_col], df_sorted[cum_col], marker="o", label=y_col)
+        ax.set_title(f"{title}{title_suffix}", fontsize=14, fontweight="bold")
+        ax.set_xlabel(x_col, fontsize=12)
+        ax.set_ylabel(f"Acumulado de {y_col}", fontsize=12)
+        ax.legend()
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        filename = f"cumulative_{y_col}{file_identifier}.png"
+        try:
+            file_path = save_figure(fig, out_dir, filename)
+            logger.info(f"Serie acumulada guardada: {file_path}")
+            saved_paths.append(file_path)
+        except Exception as e:
+            logger.error(f"Error guardando serie acumulada '{y_col}': {e}")
     return saved_paths
