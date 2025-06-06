@@ -43,3 +43,9 @@ dist/
 
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints .cursor/
+.cursor/rules/documentation-best-practices.mdc
+.cursor/rules/logging-best-practices.mdc
+.cursor/rules/python-best-practices.mdc
+.cursor/rules/pytest-best-practices.mdc
+.cursor/rules/rules_general.mdc
+.cursor/rules/versioning-and-licensing-best-practices.mdc
