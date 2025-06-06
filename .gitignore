@@ -42,4 +42,4 @@ dist/
 *.egg
 
 # Jupyter Notebook checkpoints
-.ipynb_checkpoints 
+.ipynb_checkpoints .cursor/
