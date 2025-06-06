@@ -233,18 +233,23 @@ def execute_analysis(
                 years_to_analyze = ["total"]
     else:
         logger.error("CRITICAL_DEBUG_YEARS: Análisis para todos los años disponibles y 'total' (default o --year=all o --year no especificado).")
-    if "Year" in df.columns and df["Year"].dtype in [pl.Int64, pl.Int32, pl.Int16, pl.Int8, pl.UInt64, pl.UInt32, pl.UInt16, pl.UInt8]:
-        years_available = sorted([str(y) for y in df.select(pl.col("Year").unique()).drop_nulls().to_series().to_list() if isinstance(y, int) and not isinstance(y, bool)])
-        if years_available:
-            years_to_analyze = years_available + ["total"]
-            logger.error(f"CRITICAL_DEBUG_YEARS: Años disponibles encontrados: {years_available}. Analizando: {years_to_analyze}")
+    # --- CORRECCIÓN: Solo usar todos los años disponibles si no se especificó --year y no se omitió desglose anual ---
+    if (not cli_args.year or cli_args.year.lower() == "all") and not cli_args.no_annual_breakdown:
+        if "Year" in df.columns and df["Year"].dtype in [pl.Int64, pl.Int32, pl.Int16, pl.Int8, pl.UInt64, pl.UInt32, pl.UInt16, pl.UInt8]:
+            years_available = sorted([
+                str(y) for y in df.select(pl.col("Year").unique()).drop_nulls().to_series().to_list()
+                if isinstance(y, int) and not isinstance(y, bool)
+            ])
+            if years_available:
+                years_to_analyze = years_available + ["total"]
+                logger.error(f"CRITICAL_DEBUG_YEARS: Años disponibles encontrados: {years_available}. Analizando: {years_to_analyze}")
+            else:
+                logger.error("CRITICAL_DEBUG_YEARS: No se encontraron años válidos en 'Year'. Analizando solo 'total'.")
+                years_to_analyze = ["total"]
         else:
-            logger.error("CRITICAL_DEBUG_YEARS: No se encontraron años válidos en 'Year'. Analizando solo 'total'.")
+            logger.error("CRITICAL_DEBUG_YEARS: Columna 'Year' no disponible/no numérica para desglose. Analizando solo 'total'.")
             years_to_analyze = ["total"]
-    else:
-        logger.error("CRITICAL_DEBUG_YEARS: Columna 'Year' no disponible/no numérica para desglose. Analizando solo 'total'.")
-        years_to_analyze = ["total"]
-    
+
     logger.error(f"CRITICAL_DEBUG_YEARS: Final decision - Years to analyze: {years_to_analyze}")
 
     all_period_data_for_unified_report: Dict[str, Dict[str, Dict[str, Any]]] = {}
