@@ -46,8 +46,8 @@ INTERNAL_PAYMENT_METHOD_COLUMN = "payment_method"
 # Definición de las categorías principales de análisis
 MAIN_CATEGORIES = {
     "General": {
-        "filters": {},  # No se aplican filtros adicionales a nivel de categoría aquí
-        "output_folder": " (General)",  # Subcarpeta para esta categoría
+        "filters": {},  # No aplica filtros adicionales
+        "output_folder": "",  # Sin subcarpeta para categoría General
     }
     # Se podrían añadir más categorías aquí en el futuro si es necesario, por ejemplo:
     # "Solo_USD": {
