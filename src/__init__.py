@@ -1,1 +1,1 @@
-# Paquete Python para permitir imports relativos 
+# Paquete Python para permitir imports relativos

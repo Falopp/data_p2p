@@ -1556,8 +1556,8 @@ def plot_activity_heatmap(
             return None
         if not pd.api.types.is_numeric_dtype(df_plot[value_col]):
             try:
-                df_plot[value_col] = pd.to_numeric(df_plot[value_col], errors='coerce')
-                # Es importante rellenar NaNs DESPUÉS de la conversión a numérico, 
+                df_plot[value_col] = pd.to_numeric(df_plot[value_col], errors="coerce")
+                # Es importante rellenar NaNs DESPUÉS de la conversión a numérico,
                 # o pivot_table podría mantener el dtype object si hay NaNs.
                 # No rellenaremos aquí directamente, pivot_table lo hará con fill_value.
             except Exception as e_conv:
@@ -1573,7 +1573,7 @@ def plot_activity_heatmap(
             columns=hour_col,
             values=value_col,
             aggfunc=actual_agg_func,
-            fill_value=0  # Añadir fill_value=0 para manejar NaNs y asegurar tipo numérico
+            fill_value=0,  # Añadir fill_value=0 para manejar NaNs y asegurar tipo numérico
         )
     except Exception as e_pivot:
         logger.error(f"Error creando pivot_table para heatmap: {e_pivot}{title_suffix}")
@@ -1590,7 +1590,9 @@ def plot_activity_heatmap(
         "Sunday",
     ]
     hours_ordered = range(24)
-    activity_matrix = activity_matrix.reindex(index=days_ordered_spanish, columns=hours_ordered, fill_value=0)
+    activity_matrix = activity_matrix.reindex(
+        index=days_ordered_spanish, columns=hours_ordered, fill_value=0
+    )
 
     if (
         activity_matrix.empty
@@ -1612,23 +1614,33 @@ def plot_activity_heatmap(
 
     # Asegurar que la matriz es numérica antes de pasarla al heatmap
     try:
-        if actual_agg_func.lower() == "count": # Podría ser 'size' implícitamente
+        if actual_agg_func.lower() == "count":  # Podría ser 'size' implícitamente
             activity_matrix = activity_matrix.astype(np.int64).fillna(0)
         else:  # 'sum'
             activity_matrix = activity_matrix.astype(float).fillna(0)
 
         # Log para depurar dtypes
-        logger.info(f"DEBUG_HEATMAP (plot_activity_heatmap): Dtypes de activity_matrix ANTES de heatmap para {title_suffix} (valor: {value_col}, agg: {actual_agg_func}):")
+        logger.info(
+            f"DEBUG_HEATMAP (plot_activity_heatmap): Dtypes de activity_matrix ANTES de heatmap para {title_suffix} (valor: {value_col}, agg: {actual_agg_func}):"
+        )
         for col_debug in activity_matrix.columns:
-            logger.info(f"DEBUG_HEATMAP (plot_activity_heatmap):   Columna '{col_debug}': {activity_matrix[col_debug].dtype}")
+            logger.info(
+                f"DEBUG_HEATMAP (plot_activity_heatmap):   Columna '{col_debug}': {activity_matrix[col_debug].dtype}"
+            )
         if not activity_matrix.empty:
             unique_dtypes = activity_matrix.dtypes.unique()
-            logger.info(f"DEBUG_HEATMAP (plot_activity_heatmap):   Dtypes únicos en la matriz: {unique_dtypes}")
+            logger.info(
+                f"DEBUG_HEATMAP (plot_activity_heatmap):   Dtypes únicos en la matriz: {unique_dtypes}"
+            )
         else:
-            logger.info("DEBUG_HEATMAP (plot_activity_heatmap):   La matriz activity_matrix está vacía.")
+            logger.info(
+                "DEBUG_HEATMAP (plot_activity_heatmap):   La matriz activity_matrix está vacía."
+            )
 
     except Exception as e_final_cast:
-        logger.error(f"Error en el casteo final de activity_matrix para heatmap (plot_activity_heatmap): {e_final_cast}{title_suffix}")
+        logger.error(
+            f"Error en el casteo final de activity_matrix para heatmap (plot_activity_heatmap): {e_final_cast}{title_suffix}"
+        )
         return None
 
     # 6. Graficar el heatmap
@@ -2529,173 +2541,152 @@ def plot_animated_scatter_price_volume(
         return None
 
 
-def plot_volume_vs_price_scatter(
-    df_completed: pd.DataFrame,
+def plot_price_vs_total_fiat_scatter(
+    df_data_pd: pd.DataFrame,
+    price_col: str,
+    total_fiat_col: str,  # Ej: 'TotalPrice_num' o 'TotalPrice_USD_equivalent'
+    order_type_col: str,  # Para colorear los puntos
+    asset_col_for_grouping: (
+        str | None
+    ),  # Para agrupar si no es combinado (ej: 'asset_type')
+    fiat_col_for_grouping: (
+        str | None
+    ),  # Para agrupar si no es combinado (ej: 'fiat_type')
     out_dir: str,
+    x_axis_label: str,  # Ej: "Precio (USD)", "Precio (UYU)"
+    y_axis_label: str,  # Ej: "Volumen Total Transacción (USD)", "Volumen Total Transacción (USD Equivalent)"
     title_suffix: str = "",
     file_identifier: str = "_general",
-    max_points_to_plot: int = 2000,  # Limitar puntos para rendimiento
-) -> list[str]:
-    saved_paths = []
-    if df_completed.empty:
-        logger.info(
-            f"No hay datos completados para scatter Volumen vs Precio{title_suffix}."
-        )
-        return saved_paths
-
-    quantity_num_col = "Quantity_num"
-    price_num_col = "Price_num"
-    total_price_num_col = "TotalPrice_num"  # Usado para el tamaño de los puntos
-    asset_type_col_internal = "asset_type"
-    fiat_type_col_internal = "fiat_type"
-    order_type_col_internal = "order_type"  # Usado para el color (hue)
-
-    required_cols = [
-        quantity_num_col,
-        price_num_col,
-        total_price_num_col,
-        asset_type_col_internal,
-        fiat_type_col_internal,
-        order_type_col_internal,
-    ]
-    if not all(col in df_completed.columns for col in required_cols):
-        missing = [col for col in required_cols if col not in df_completed.columns]
-        logger.warning(
-            f"Faltan columnas ({missing}) para scatter Volumen vs Precio{title_suffix}."
-        )
-        return saved_paths
-
-    df_plot_base = df_completed.copy()
-
-    # Convertir columnas relevantes a numérico y eliminar NaNs
-    for col_to_convert in [quantity_num_col, price_num_col, total_price_num_col]:
-        if col_to_convert in df_plot_base.columns:
-            df_plot_base[col_to_convert] = pd.to_numeric(
-                df_plot_base[col_to_convert], errors="coerce"
-            )
-    df_plot_base.dropna(
-        subset=[quantity_num_col, price_num_col, total_price_num_col], inplace=True
+    specific_plot_title: str | None = None,
+    hue_col_for_combined: (
+        str | None
+    ) = None,  # Ej: 'asset_type' si es un gráfico combinado
+) -> str | None:
+    logger.info(
+        f"Iniciando generación de Scatter Precio vs Volumen Fiat ({x_axis_label} vs {y_axis_label}){title_suffix}."
     )
 
-    if df_plot_base.empty:
-        logger.info(
-            f"Datos vacíos después de conversión a numérico/NaN drop para scatter Volumen vs Precio{title_suffix}."
+    required_cols = [price_col, total_fiat_col, order_type_col]
+    if asset_col_for_grouping:
+        required_cols.append(asset_col_for_grouping)
+    if fiat_col_for_grouping:
+        required_cols.append(fiat_col_for_grouping)
+    if hue_col_for_combined and hue_col_for_combined not in required_cols:
+        required_cols.append(hue_col_for_combined)
+
+    if not all(col in df_data_pd.columns for col in required_cols):
+        missing = [col for col in required_cols if col not in df_data_pd.columns]
+        logger.warning(
+            f"Faltan columnas ({', '.join(missing)}) para Scatter Precio vs Volumen Fiat{title_suffix}. No se generará."
         )
-        return saved_paths
+        return None
 
-    # Iterar por cada par Asset/Fiat
-    for (asset_val, fiat_val), group_data_original in df_plot_base.groupby(
-        [asset_type_col_internal, fiat_type_col_internal]
-    ):
-        if group_data_original.empty:
-            logger.info(
-                f"Datos vacíos para el par {asset_val}/{fiat_val} en scatter Volumen vs Precio{title_suffix}."
-            )
-            continue
+    df_plot = df_data_pd.dropna(
+        subset=[price_col, total_fiat_col, order_type_col]
+    ).copy()
 
-        group_data_to_plot = group_data_original.copy()
-
-        # Limitar el número de puntos si excede el máximo
-        if len(group_data_to_plot) > max_points_to_plot:
-            logger.info(
-                f"Tomando muestra de {max_points_to_plot} puntos de {len(group_data_to_plot)} para scatter {asset_val}/{fiat_val}{title_suffix}."
-            )
-            group_data_to_plot = group_data_to_plot.sample(
-                n=max_points_to_plot, random_state=42
-            )  # random_state para reproducibilidad
-
-        # Normalizar TotalPrice_num para el tamaño de los puntos, asegurando que sea positivo
-        size_data = group_data_to_plot[total_price_num_col]
-        sizes_for_plot = pd.Series(
-            [30] * len(group_data_to_plot), index=group_data_to_plot.index
-        )  # Default size
-        if (
-            not size_data.empty and size_data.min() >= 0
-        ):  # Asegurar que todos los valores sean no negativos
-            min_val_sd = size_data.min()
-            max_val_sd = size_data.max()
-            if (
-                pd.notna(min_val_sd)
-                and pd.notna(max_val_sd)
-                and max_val_sd > min_val_sd
-            ):
-                sizes_norm = (size_data - min_val_sd) / (max_val_sd - min_val_sd)
-                sizes_for_plot = sizes_norm * 480 + 20  # Rango de tamaño de 20 a 500
-            elif (
-                pd.notna(min_val_sd) and min_val_sd == max_val_sd
-            ):  # Todos los valores son iguales (y no NaN)
-                sizes_for_plot = pd.Series(
-                    [100] * len(group_data_to_plot), index=group_data_to_plot.index
+    for col_num in [price_col, total_fiat_col]:
+        if not pd.api.types.is_numeric_dtype(df_plot[col_num]):
+            try:
+                df_plot[col_num] = pd.to_numeric(df_plot[col_num], errors="coerce")
+                df_plot.dropna(subset=[col_num], inplace=True)
+            except Exception as e_conv_scatter_num:
+                logger.error(
+                    f"No se pudo convertir la columna '{col_num}' a numérica para scatter: {e_conv_scatter_num}."
                 )
+                return None
 
-        sizes_for_plot = (
-            sizes_for_plot.fillna(30).clip(lower=10, upper=500).astype("float64")
+    if df_plot.empty:
+        logger.info(
+            f"No hay datos válidos para Scatter Precio vs Volumen Fiat ({x_axis_label} vs {y_axis_label}){title_suffix}."
         )
+        return None
 
-        fig, ax = plt.subplots(figsize=(14, 9))  # Usar fig, ax
-
-        scatter_plot = sns.scatterplot(
-            data=group_data_to_plot,
-            x=quantity_num_col,
-            y=price_num_col,
-            hue=order_type_col_internal,
-            size=sizes_for_plot,
-            sizes=(20, 500),
-            alpha=0.6,
-            palette="viridis",
-            legend="auto",
-            ax=ax,  # Especificar el ax
+    # Limitar el número de puntos para evitar gráficos muy pesados, especialmente scatter plots
+    max_points = 5000
+    if len(df_plot) > max_points:
+        logger.info(
+            f"Demasiados puntos ({len(df_plot)}) para scatter Precio vs Volumen Fiat. Tomando muestra de {max_points}."
         )
+        df_plot = df_plot.sample(n=max_points, random_state=42)
 
-        main_title = f"Volumen de Transacción vs. Precio para {asset_val}/{fiat_val}{title_suffix}"
-        sub_title_text = f"Cada punto es una transacción. Color indica Compra/Venta. Tamaño del punto proporcional al Monto Total en {fiat_val}."
-        fig.suptitle(main_title, fontsize=16, y=0.99)  # Usar fig.suptitle
-        ax.set_title(sub_title_text, fontsize=10, pad=10)
+    plt.figure(figsize=(12, 8))
 
-        ax.set_xlabel(f"Volumen del Activo ({asset_val})", fontsize=12)
-        ax.set_ylabel(f"Precio Unitario en {fiat_val}", fontsize=12)  # Corregido aquí
+    current_hue_col = order_type_col
+    if hue_col_for_combined and hue_col_for_combined in df_plot.columns:
+        current_hue_col = hue_col_for_combined
 
-        handles, labels = scatter_plot.get_legend_handles_labels()
-        legend_params = {}  # Inicializar legend_params
-        if handles:
-            legend_params = {
-                "title": f'{order_type_col_internal.replace("_", " ").title()} / Monto Total'
-            }
-            if len(handles) > 6:
-                legend_params["loc"] = "center left"
-                legend_params["bbox_to_anchor"] = (1.01, 0.5)
-            else:
-                legend_params["loc"] = "best"
-            ax.legend(**legend_params, fontsize=9)  # Usar ax.legend
+    sns.scatterplot(
+        data=df_plot,
+        x=price_col,
+        y=total_fiat_col,
+        hue=current_hue_col,
+        alpha=0.6,
+        palette="viridis",
+        s=50,  # Tamaño de los puntos
+    )
 
-        ax.grid(True, linestyle="--", alpha=0.7)
+    title = (
+        specific_plot_title
+        if specific_plot_title
+        else f"Correlación Precio vs. Volumen Total Fiat{title_suffix}"
+    )
+    plt.title(title, fontsize=16)
+    plt.xlabel(x_axis_label, fontsize=12)
+    plt.ylabel(y_axis_label, fontsize=12)
+    plt.xticks(fontsize=10)
+    plt.yticks(fontsize=10)
+    plt.legend(title=current_hue_col.replace("_", " ").title())
 
-        ax.xaxis.set_major_formatter(
-            mticker.FuncFormatter(
-                lambda x, p: utils.format_large_number(x, precision=2)
-            )
+    # Formatear ejes para números grandes si es necesario y aplicar escala logarítmica si hay mucha dispersión
+    ax = plt.gca()
+    ax.xaxis.set_major_formatter(
+        mticker.FuncFormatter(
+            lambda x, p: utils.format_large_number(x) if x > 1000 else f"{x:.2f}"
         )
-        ax.yaxis.set_major_formatter(
-            mticker.FuncFormatter(
-                lambda x, p: utils.format_large_number(x, precision=2)
-            )
+    )
+    ax.yaxis.set_major_formatter(
+        mticker.FuncFormatter(lambda x, p: utils.format_large_number(x))
+    )
+
+    # Considerar escala logarítmica si los datos tienen un rango muy amplio
+    # Ejemplo: si el máximo es > 100 veces el mínimo (y ambos positivos)
+    price_min, price_max = df_plot[price_col].min(), df_plot[price_col].max()
+    total_fiat_min, total_fiat_max = (
+        df_plot[total_fiat_col].min(),
+        df_plot[total_fiat_col].max(),
+    )
+
+    if price_min > 0 and price_max / price_min > 100:
+        logger.info(
+            f"Aplicando escala logarítmica al eje X (Precio) para scatter ({x_axis_label} vs {y_axis_label})."
         )
-
-        # Ajustar el layout para acomodar la leyenda si está fuera
-        fig.tight_layout(
-            rect=[0, 0, 0.88 if legend_params.get("bbox_to_anchor") else 1, 0.95]
+        ax.set_xscale("log")
+    if total_fiat_min > 0 and total_fiat_max / total_fiat_min > 100:
+        logger.info(
+            f"Aplicando escala logarítmica al eje Y (Volumen Fiat) para scatter ({x_axis_label} vs {y_axis_label})."
         )
+        ax.set_yscale("log")
 
-        file_name_scatter = f'volume_vs_price_scatter_{str(asset_val).lower().replace(" ", "_")}_{str(fiat_val).lower().replace(" ", "_")}{file_identifier}.png'
-        file_path = os.path.join(out_dir, file_name_scatter)
-        try:
-            fig.savefig(file_path, dpi=300)  # Usar fig.savefig
-        except Exception as e:
-            logger.error(f"Error al guardar el gráfico scatter {file_path}: {e}")
-        finally:
-            plt.close(fig)  # Usar plt.close(fig)
+    plt.grid(True, linestyle="--", alpha=0.5)
+    plt.tight_layout()
 
-    return saved_paths
+    file_name = f"scatter_price_vs_totalfiat{file_identifier}.png"
+    file_path = os.path.join(out_dir, file_name)
+
+    try:
+        plt.savefig(file_path)
+        logger.info(
+            f"Scatter Precio vs Volumen Fiat ({x_axis_label} vs {y_axis_label}) guardado en: {file_path}"
+        )
+        plt.close()
+        return file_path
+    except Exception as e:
+        logger.error(
+            f"Error al guardar Scatter Precio vs Volumen Fiat ({x_axis_label} vs {y_axis_label}) {file_path}: {e}"
+        )
+        plt.close()
+        return None
 
 
 # --- Nueva función para Boxplots por Método de Pago ---
@@ -3635,9 +3626,9 @@ def plot_daily_average(
                 categories=days_order_es,
                 ordered=True,
             )
-            df_plot_full[plot_x_col] = (
-                category_order  # Re-asignar para asegurar el tipo categórico ordenado
-            )
+            df_plot_full[
+                plot_x_col
+            ] = category_order  # Re-asignar para asegurar el tipo categórico ordenado
 
         df_plot_full = df_plot_full.sort_values(
             by=plot_x_col,

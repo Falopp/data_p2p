@@ -49,3 +49,5 @@ dist/
 .cursor/rules/pytest-best-practices.mdc
 .cursor/rules/rules_general.mdc
 .cursor/rules/versioning-and-licensing-best-practices.mdc
+.cursor/rules/general.mdc
+.flake8

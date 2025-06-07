@@ -13,7 +13,9 @@ def set_default_style(style: str = "whitegrid") -> None:
     sns.set_theme(style=style)
 
 
-def create_figure(figsize: tuple[float, float] = (12, 8)) -> tuple[plt.Figure, plt.Axes]:
+def create_figure(
+    figsize: tuple[float, float] = (12, 8)
+) -> tuple[plt.Figure, plt.Axes]:
     """
     Crea una figura y ejes con el estilo por defecto.
 
@@ -33,7 +35,7 @@ def save_figure(
     out_dir: str,
     filename: str,
     dpi: int = 300,
-    tight_layout: bool = True
+    tight_layout: bool = True,
 ) -> str:
     """
     Guarda una figura en disco, creando el directorio si hace falta.
@@ -55,6 +57,6 @@ def save_figure(
         except Exception:
             pass
     file_path = os.path.join(out_dir, filename)
-    fig.savefig(file_path, dpi=dpi, bbox_inches='tight')
+    fig.savefig(file_path, dpi=dpi, bbox_inches="tight")
     plt.close(fig)
-    return file_path 
+    return file_path
