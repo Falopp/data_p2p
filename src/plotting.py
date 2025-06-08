@@ -871,8 +871,30 @@ def plot_volume_vs_price_scatter(
         file_path = os.path.join(out_dir, file_name_scatter)
         try:
             fig.savefig(file_path, dpi=300)  # Usar fig.savefig
-        except Exception as e:
-            logger.error(f"Error al guardar el gráfico scatter {file_path}: {e}")
+            saved_paths.append(file_path)
+        except (Exception, KeyboardInterrupt) as e:
+            logger.error(
+                f"Fallo al generar/guardar gráfico scatter {file_path} debido a {type(e).__name__}: {e}. Creando imagen placeholder."
+            )
+            if isinstance(e, KeyboardInterrupt):
+                logger.warning(
+                    f"Generación de gráfico scatter para {file_path} interrumpida manualmente."
+                )
+            # Crear imagen placeholder
+            try:
+                error_fig = plt.figure(figsize=(6, 4))
+                plt.text(0.5, 0.5, "Gráfico no disponible", ha="center", va="center")
+                plt.title("Placeholder de Scatter", y=0.5)
+                placeholder_path = file_path.replace(".png", "_placeholder.png")
+                error_fig.savefig(placeholder_path, dpi=150)
+                saved_paths.append(placeholder_path)
+            except Exception as e_placeholder:
+                logger.error(
+                    f"CRÍTICO: Fallo al crear placeholder para {file_path}: {e_placeholder}"
+                )
+            finally:
+                if "error_fig" in locals() and plt.fignum_exists(error_fig.number):
+                    plt.close(error_fig)
         finally:
             plt.close(fig)  # Usar plt.close(fig)
 

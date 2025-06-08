@@ -51,3 +51,6 @@ dist/
 .cursor/rules/versioning-and-licensing-best-practices.mdc
 .cursor/rules/general.mdc
 .flake8
+.pre-commit-config.yaml
+pyproject.toml
+pytest.ini

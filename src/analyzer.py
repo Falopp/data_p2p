@@ -7,6 +7,11 @@ from . import session_analyzer  # Importar el nuevo módulo de análisis de sesi
 import numpy as np  # Añadir numpy para FFT
 from sklearn.ensemble import IsolationForest
 from datetime import datetime, timedelta, timezone
+from .transformations.numeric import process_numeric_columns
+from .transformations.patches import (
+    patch_usdt_usd_price,
+    create_total_price_usd_equivalent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,52 +35,10 @@ def analyze(
     order_number_col = "order_number"
     payment_method_col = "payment_method"
 
-    logger.info("Iniciando transformación de columnas numéricas con Polars...")
-    cols_to_process_numeric = {
-        quantity_col: "Quantity_num",
-        maker_fee_col: "MakerFee_num",
-        taker_fee_col: "TakerFee_num",
-        price_col: "Price_num",
-        total_price_col: "TotalPrice_num",
-    }
+    # Procesamiento de columnas numéricas
+    df_processed = process_numeric_columns(df_processed)
 
-    processed_numerics = []
-    warnings_numerics = []
-
-    for original_col_internal_name, new_num_col in cols_to_process_numeric.items():
-        if new_num_col not in df_processed.columns:
-            if original_col_internal_name in df_processed.columns:
-                df_processed = df_processed.with_columns(
-                    pl.col(original_col_internal_name)
-                    .map_elements(parse_amount, return_dtype=pl.Float64)
-                    .alias(new_num_col)
-                )
-                processed_numerics.append(
-                    f"{original_col_internal_name} -> {new_num_col}"
-                )
-            else:
-                logger.warning(
-                    f"Columna original mapeada a '{original_col_internal_name}' no encontrada para crear '{new_num_col}'. Se creará '{new_num_col}' con nulos."
-                )
-                df_processed = df_processed.with_columns(
-                    pl.lit(None, dtype=pl.Float64).alias(new_num_col)
-                )
-                warnings_numerics.append(
-                    f"'{original_col_internal_name}' no encontrada, '{new_num_col}' creada con nulos."
-                )
-        else:
-            processed_numerics.append(f"{new_num_col} (existente)")
-
-    if processed_numerics:
-        logger.info(
-            f"Columnas numéricas procesadas/verificadas: {'; '.join(processed_numerics)}."
-        )
-    if warnings_numerics:
-        for warning_msg in warnings_numerics:
-            logger.warning(warning_msg)
-    logger.info("Transformación de columnas numéricas completada.")
-
-    # --- INICIO: Parche para corregir Price_num en USDT/USD ---
+    # Aplicar parche de corrección de precios USDT/USD
     if (
         asset_type_col in df_processed.columns
         and fiat_type_col in df_processed.columns
@@ -113,9 +76,8 @@ def analyze(
         logger.info(
             "No se aplicó el parche de corrección de Price_num para USDT/USD porque faltan una o más columnas requeridas (asset_type, fiat_type, Price_num)."
         )
-    # --- FIN: Parche para corregir Price_num en USDT/USD ---
 
-    # --- INICIO: Crear TotalPrice_USD_equivalent ---
+    # Crear columna de TotalPrice_USD_equivalent
     logger.info(
         "Creando columna 'TotalPrice_USD_equivalent' para volúmenes combinados..."
     )
@@ -166,7 +128,8 @@ def analyze(
         df_processed = df_processed.with_columns(
             pl.lit(None, dtype=pl.Float64).alias("TotalPrice_USD_equivalent")
         )
-    # --- FIN: Crear TotalPrice_USD_equivalent ---
+
+    df_processed = create_total_price_usd_equivalent(df_processed)
 
     if "MakerFee_num" not in df_processed.columns:
         df_processed = df_processed.with_columns(

@@ -14,6 +14,8 @@ Módulos requeridos:
     - config_loader: Carga de configuración
     - main_logic: Pipeline de análisis y inicialización
     - unified_reporter: Reporte unificado
+    - filters: Módulo para aplicar filtros genéricos
+    - time_features: Módulo para procesar columnas de tiempo
 """
 from __future__ import annotations
 
@@ -28,15 +30,21 @@ import polars.exceptions
 
 from .analyzer import analyze
 from .config_loader import load_config
-from .main_logic import initialize_analysis, execute_analysis
+from .main_logic import initialize_analysis, AnalysisRunner
 from .unified_reporter import UnifiedReporter
+from .logging_config import setup_logging
+from .filters import apply_filters
+from .transformations.time_features import process_time_features
 
 import datetime
+import warnings
 
-# Configuración de logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+# Silenciar warnings repetitivos
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", message="Passing `palette` without assigning `hue`")
+warnings.filterwarnings("ignore", message="No artists with labels found")
+
+# Configuración de logging centralizada
 logger = logging.getLogger(__name__)
 
 # Constantes de nombres de columnas internas
@@ -323,127 +331,21 @@ def _load_and_preprocess_input_data(
 
     df_renamed = _rename_columns_from_config(raw_df, column_map_config)
 
-    # Aplicar filtros básicos existentes
-    if cli_args.fiat_filter:
-        df_renamed = _apply_fiat_filter(df_renamed, cli_args.fiat_filter)
-    if cli_args.asset_filter:
-        df_renamed = _apply_asset_filter(df_renamed, cli_args.asset_filter)
-    if cli_args.status_filter:
-        df_renamed = _apply_status_filter(df_renamed, cli_args.status_filter)
-    if cli_args.payment_method_filter:
-        df_renamed = _apply_payment_method_filter(
-            df_renamed, cli_args.payment_method_filter
-        )
+    # Aplicar filtros básicos usando módulo genérico
+    base_filters = {
+        "fiat_type": cli_args.fiat_filter or [],
+        "asset_type": cli_args.asset_filter or [],
+        "status": cli_args.status_filter or [],
+        "payment_method": cli_args.payment_method_filter or [],
+    }
+    df_renamed = apply_filters(df_renamed, base_filters)
 
-    # --- Procesamiento de Columnas de Tiempo ---
-    logger.info("Iniciando procesamiento de columnas de tiempo con Polars...")
-    time_cols_created_or_verified = []
-    match_time_utc_col_internal = "match_time_utc"  # Nombre interno post-renombrado
-
-    if match_time_utc_col_internal in df_renamed.columns:
-        logger.info(
-            f"Generando columnas de tiempo a partir de '{match_time_utc_col_internal}'."
-        )
-        try:
-            # Primero, intentar la conversión directa si ya es datetime o un formato reconocido
-            if not isinstance(
-                df_renamed[match_time_utc_col_internal].dtype, pl.Datetime
-            ):
-                df_renamed = df_renamed.with_columns(
-                    pl.col(match_time_utc_col_internal)
-                    .str.to_datetime(
-                        format="%Y-%m-%d %H:%M:%S",
-                        strict=True,  # Formato esperado del CSV
-                    )
-                    .alias("Match_time_utc_dt_naive")
-                )
-            else:  # Si ya es datetime, solo clonarla para mantener consistencia
-                df_renamed = df_renamed.with_columns(
-                    pl.col(match_time_utc_col_internal).alias("Match_time_utc_dt_naive")
-                )
-
-            # Proceder con la zona horaria y otras derivaciones
-            df_renamed = df_renamed.with_columns(
-                [
-                    pl.col("Match_time_utc_dt_naive")
-                    .dt.replace_time_zone("UTC")
-                    .alias("Match_time_utc_dt")
-                ]
-            )
-
-            uy_tz = "America/Montevideo"
-            df_renamed = df_renamed.with_columns(
-                [
-                    pl.col("Match_time_utc_dt")
-                    .dt.convert_time_zone(uy_tz)
-                    .alias("Match_time_local"),
-                ]
-            )
-
-            df_renamed = df_renamed.with_columns(
-                [
-                    pl.col("Match_time_local").dt.hour().alias("hour_local"),
-                    pl.col("Match_time_local")
-                    .dt.strftime("%Y-%m")
-                    .alias("YearMonthStr"),
-                    pl.col("Match_time_local").dt.year().alias("Year"),
-                    pl.col("Match_time_local")
-                    .dt.weekday()
-                    .alias("weekday_local"),  # Lunes=1, Domingo=7
-                    pl.col("Match_time_local").dt.date().alias("date_local"),
-                ]
-            ).drop("Match_time_utc_dt_naive")
-
-            initial_rows = df_renamed.height
-            # Es crucial dropear nulos DESPUÉS de la conversión a Match_time_local y no antes
-            # o sobre una columna intermedia que podría fallar para todas las filas.
-            df_renamed = df_renamed.drop_nulls(subset=["Match_time_local"])
-            rows_dropped = initial_rows - df_renamed.height
-            if rows_dropped > 0:
-                logger.warning(
-                    f"Filas eliminadas debido a valores nulos/inválidos en fechas después de la conversión: {rows_dropped}"
-                )
-
-            if df_renamed.height > 0:
-                time_cols_created_or_verified.extend(
-                    [
-                        "Match_time_utc_dt",
-                        "Match_time_local",
-                        "hour_local",
-                        "YearMonthStr",
-                        "Year",
-                        "weekday_local",
-                        "date_local",
-                    ]
-                )
-            else:
-                logger.error(
-                    "El DataFrame quedó vacío después del procesamiento de fechas y drop_nulls. Verifica la calidad de los datos de fecha en el CSV."
-                )
-                return None  # DataFrame vacío, no se puede continuar
-
-        except (
-            Exception
-        ) as e_time_proc:  # Captura más genérica para errores de conversión
-            logger.error(
-                f"Error crítico durante el procesamiento de la columna '{match_time_utc_col_internal}': {e_time_proc}. No se pueden generar columnas de tiempo."
-            )
-            # Si falla la conversión de tiempo, es mejor devolver None para que el script se detenga controladamente.
-            return None
-    else:
-        logger.warning(
-            f"Columna de tiempo original '{match_time_utc_col_internal}' no encontrada. "
-            f"No se crearán columnas de tiempo derivadas. El análisis puede ser limitado."
-        )
-        # Considerar si devolver None o df aquí. Si las fechas son cruciales, mejor None.
+    # Procesamiento de columnas de tiempo en módulo dedicado
+    match_time_col = "match_time_utc"
+    df_renamed = process_time_features(df_renamed, match_time_col)
+    if df_renamed is None:
         return None
-
-    if time_cols_created_or_verified:
-        logger.info(
-            f"Columnas de tiempo procesadas/verificadas: {', '.join(time_cols_created_or_verified)}."
-        )
-    logger.info("Procesamiento de columnas de tiempo completado.")
-    # --- Fin Procesamiento de Columnas de Tiempo ---
+    # --- Fin módulo de tiempo ---
 
     # Filtro de mes (después de que Match_time_local se haya creado)
     if cli_args.mes:
@@ -477,7 +379,10 @@ def _load_and_preprocess_input_data(
 def main() -> None:
     """Punto de entrada principal del script."""
     args, clean_filename_suffix_cli, analysis_title_suffix_cli = initialize_analysis()
-    logger.error(f"CRITICAL_APP_DEBUG_MAIN_START: Args parseados: {args}")
+    # Configuración de logging según CLI
+    setup_logging(args.out, args.log_level)
+
+    logger.debug(f"CRITICAL_APP_DEBUG_MAIN_START: Args parseados: {args}")
     logger.info(
         f"CRITICAL_APP_DEBUG_MAIN_START: clean_filename_suffix_cli: {clean_filename_suffix_cli}"
     )
@@ -597,7 +502,7 @@ def main() -> None:
     # Bucle principal para procesar categorías (ej. "General")
     for category_name, category_config_map in MAIN_CATEGORIES.items():
         logger.info(f"\n--- Procesando categoría principal: {category_name} ---")
-        logger.error(  # CRITICAL LOG
+        logger.debug(
             f"CRITICAL_APP_DEBUG: Procesando categoría '{category_name}'. Args: {args}, CatFilters: {category_config_map}"
         )
 
@@ -618,7 +523,7 @@ def main() -> None:
             )
             continue  # Saltar a la siguiente categoría
 
-        logger.error(
+        logger.debug(
             f"CRITICAL_APP_DEBUG: Antes de _load_and_preprocess_input_data para '{category_name}'"
         )
         df_processed_for_category = _load_and_preprocess_input_data(
@@ -631,7 +536,7 @@ def main() -> None:
             )
             continue
 
-        logger.error(
+        logger.debug(
             f"CRITICAL_APP_DEBUG: Para '{category_name}', ANTES de execute_analysis: df.shape: {df_processed_for_category.shape}, df.cols: {df_processed_for_category.columns}, output_dir_for_analysis: {output_dir_for_analysis}"
         )
         if "Year" in df_processed_for_category.columns:
@@ -642,23 +547,25 @@ def main() -> None:
                 .to_series()
                 .to_list()
             )
-            logger.error(
+            logger.debug(
                 f"CRITICAL_APP_DEBUG: 'Year' en df_processed. Únicos: {unique_years_app}"
             )
         else:
-            logger.error(
+            logger.debug(
                 "CRITICAL_APP_DEBUG: 'Year' column NOT in df_processed antes de execute_analysis."
             )
 
-        execute_analysis(
-            df=df_processed_for_category.clone(),
-            col_map=column_map_config,
-            config=config,
-            cli_args=args,
-            output_dir=str(output_dir_for_analysis),
-            clean_filename_suffix_cli=clean_filename_suffix_cli,  # NUEVO
-            analysis_title_suffix_cli=analysis_title_suffix_cli,  # NUEVO
+        # Ejecutar análisis usando AnalysisRunner
+        runner = AnalysisRunner(
+            df_processed_for_category.clone(),
+            column_map_config,
+            config,
+            args,
+            str(output_dir_for_analysis),
+            clean_filename_suffix_cli,
+            analysis_title_suffix_cli,
         )
+        runner.run()
 
     logger.info("🎉 Análisis completado para todas las categorías.")
     logger.info("El pipeline de análisis ha finalizado.")
