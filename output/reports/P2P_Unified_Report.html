@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reporte P2P Consolidado</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --secondary-color: #3498db;
+            --success-color: #27ae60;
+            --warning-color: #f39c12;
+            --danger-color: #e74c3c;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f8f9fa;
+        }
+        
+        .navbar-brand {
+            font-weight: 700;
+            font-size: 1.5rem;
+        }
+        
+        .stats-card {
+            border: none;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
+        }
+        
+        .stats-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .stats-icon {
+            font-size: 2.5rem;
+            opacity: 0.8;
+        }
+        
+        .nav-tabs .nav-link {
+            border: none;
+            color: var(--primary-color);
+            font-weight: 500;
+            margin-right: 1rem;
+            border-radius: 10px 10px 0 0;
+        }
+        
+        .nav-tabs .nav-link.active {
+            background-color: var(--secondary-color);
+            color: white;
+        }
+        
+        .tab-content {
+            background: white;
+            border-radius: 0 15px 15px 15px;
+            padding: 2rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        .figure-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+        
+        .figure-card {
+            border: none;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
+        }
+        
+        .figure-card:hover {
+            transform: scale(1.02);
+        }
+        
+        .figure-card img {
+            width: 100%;
+            height: auto;
+            object-fit: cover;
+        }
+        
+        .comparison-section {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 15px;
+            padding: 2rem;
+            margin: 2rem 0;
+        }
+        
+        .currency-badge {
+            display: inline-block;
+            padding: 0.5rem 1rem;
+            border-radius: 50px;
+            font-weight: 600;
+            margin-right: 0.5rem;
+        }
+        
+        .usd-badge {
+            background-color: var(--success-color);
+            color: white;
+        }
+        
+        .uyu-badge {
+            background-color: var(--secondary-color);
+            color: white;
+        }
+        
+        .loading-spinner {
+            display: none;
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin: 1rem 0;
+        }
+        
+        @media (max-width: 768px) {
+            .figure-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .stats-row .col-md-3 {
+                margin-bottom: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background-color: var(--primary-color);">
+        <div class="container">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-chart-line me-2"></i>Reporte P2P Consolidado
+            </a>
+            <div class="navbar-nav ms-auto">
+                <span class="navbar-text">
+                    <i class="far fa-clock me-1"></i>2025-08-08 18:24:07
+                </span>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container mt-4">
+        <!-- Executive Summary -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <h2 class="text-center mb-4">
+                    <i class="fas fa-analytics me-2"></i>Resumen Ejecutivo
+                </h2>
+            </div>
+        </div>
+
+        <!-- Stats Cards -->
+        <div class="row stats-row mb-5">
+            <div class="col-md-3 mb-3">
+                <div class="card stats-card h-100" style="background: linear-gradient(135deg, var(--primary-color), #34495e);">
+                    <div class="card-body text-white text-center">
+                        <i class="fas fa-exchange-alt stats-icon mb-3"></i>
+                        <h4>10,752</h4>
+                        <p class="mb-0">Operaciones Totales</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <div class="card stats-card h-100" style="background: linear-gradient(135deg, var(--success-color), #229954);">
+                    <div class="card-body text-white text-center">
+                        <i class="fas fa-dollar-sign stats-icon mb-3"></i>
+                        <h4>$6,684,296</h4>
+                        <p class="mb-0">Volumen USD/USDT</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <div class="card stats-card h-100" style="background: linear-gradient(135deg, var(--secondary-color), #2980b9);">
+                    <div class="card-body text-white text-center">
+                        <i class="fas fa-peso-sign stats-icon mb-3"></i>
+                        <h4>$58,254,140</h4>
+                        <p class="mb-0">Volumen UYU</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <div class="card stats-card h-100" style="background: linear-gradient(135deg, var(--warning-color), #d68910);">
+                    <div class="card-body text-white text-center">
+                        <i class="fas fa-users stats-icon mb-3"></i>
+                        <h4>518</h4>
+                        <p class="mb-0">Contrapartes Únicas</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Periods Analyzed -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">
+                            <i class="fas fa-calendar-alt me-2"></i>Períodos Analizados
+                        </h5>
+                        <div class="d-flex flex-wrap">
+                            
+                                <span class="badge bg-secondary me-2 mb-2 p-2">total</span>
+                            
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabbed Analysis -->
+        <div class="row">
+            <div class="col-12">
+                <ul class="nav nav-tabs" id="analysisTab" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="comparative-tab" data-bs-toggle="tab" data-bs-target="#comparative" type="button" role="tab">
+                            <i class="fas fa-balance-scale me-2"></i>Análisis Comparativo
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="usd-tab" data-bs-toggle="tab" data-bs-target="#usd-analysis" type="button" role="tab">
+                            <i class="fas fa-dollar-sign me-2"></i>Análisis USD/USDT
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="uyu-tab" data-bs-toggle="tab" data-bs-target="#uyu-analysis" type="button" role="tab">
+                            <i class="fas fa-peso-sign me-2"></i>Análisis UYU
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="general-tab" data-bs-toggle="tab" data-bs-target="#general" type="button" role="tab">
+                            <i class="fas fa-chart-pie me-2"></i>Análisis General
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="counterparty-tab" data-bs-toggle="tab" data-bs-target="#counterparty" type="button" role="tab">
+                            <i class="fas fa-handshake me-2"></i>Contrapartes
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="sessions-tab" data-bs-toggle="tab" data-bs-target="#sessions" type="button" role="tab">
+                            <i class="fas fa-clock me-2"></i>Sesiones
+                        </button>
+                    </li>
+                </ul>
+
+                <div class="tab-content" id="analysisTabContent">
+                    <!-- Comparative Analysis Tab -->
+                    <div class="tab-pane fade show active" id="comparative" role="tabpanel">
+                        <div class="comparison-section">
+                            <h3 class="text-center mb-4">
+                                <i class="fas fa-balance-scale me-2"></i>Comparación USD vs UYU
+                            </h3>
+                            <div class="row text-center">
+                                <div class="col-md-6">
+                                    <div class="currency-badge usd-badge">
+                                        <i class="fas fa-dollar-sign me-2"></i>USD/USDT
+                                    </div>
+                                    <h4>$6,684,296</h4>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="currency-badge uyu-badge">
+                                        <i class="fas fa-peso-sign me-2"></i>UYU
+                                    </div>
+                                    <h4>$58,254,140</h4>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="figure-grid">
+                            
+                                <div class="figure-card">
+                                    <div class="card">
+                                        <img src="output\figures\comparative\usd_vs_uyu_volumes.png" alt="Análisis Comparativo" class="card-img-top">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Análisis Comparativo</h6>
+                                        </div>
+                                    </div>
+                                </div>
+                            
+                                <div class="figure-card">
+                                    <div class="card">
+                                        <img src="output\figures\comparative\usd_vs_uyu_operations.png" alt="Análisis Comparativo" class="card-img-top">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Análisis Comparativo</h6>
+                                        </div>
+                                    </div>
+                                </div>
+                            
+                        </div>
+                    </div>
+
+                    <!-- USD Analysis Tab -->
+                    <div class="tab-pane fade" id="usd-analysis" role="tabpanel">
+                        <h3 class="mb-4">
+                            <span class="currency-badge usd-badge">
+                                <i class="fas fa-dollar-sign me-2"></i>Análisis USD/USDT Consolidado
+                            </span>
+                        </h3>
+                        
+                        <div class="figure-grid">
+                            
+                                <div class="figure-card">
+                                    <div class="card">
+                                        <img src="output\figures\usd_analysis\temporal_evolution_usd.png" alt="Análisis USD" class="card-img-top">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Análisis USD/USDT</h6>
+                                        </div>
+                                    </div>
+                                </div>
+                            
+                                <div class="figure-card">
+                                    <div class="card">
+                                        <img src="output\figures\usd_analysis\activity_heatmap_usd.png" alt="Análisis USD" class="card-img-top">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Análisis USD/USDT</h6>
+                                        </div>
+                                    </div>
+                                </div>
+                            
+                                <div class="figure-card">
+                                    <div class="card">
+                                        <img src="output\figures\usd_analysis\payment_methods_usd.png" alt="Análisis USD" class="card-img-top">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Análisis USD/USDT</h6>
+                                        </div>
+                                    </div>
+                                </div>
+                            
+                        </div>
+                    </div>
+
+                    <!-- UYU Analysis Tab -->
+                    <div class="tab-pane fade" id="uyu-analysis" role="tabpanel">
+                        <h3 class="mb-4">
+                            <span class="currency-badge uyu-badge">
+                                <i class="fas fa-peso-sign me-2"></i>Análisis UYU Consolidado
+                            </span>
+                        </h3>
+                        
+                        <div class="figure-grid">
+                            
+                                <div class="figure-card">
+                                    <div class="card">
+                                        <img src="output\figures\uyu_analysis\temporal_evolution_uyu.png" alt="Análisis UYU" class="card-img-top">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Análisis UYU</h6>
+                                        </div>
+                                    </div>
+                                </div>
+                            
+                                <div class="figure-card">
+                                    <div class="card">
+                                        <img src="output\figures\uyu_analysis\activity_heatmap_uyu.png" alt="Análisis UYU" class="card-img-top">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Análisis UYU</h6>
+                                        </div>
+                                    </div>
+                                </div>
+                            
+                                <div class="figure-card">
+                                    <div class="card">
+                                        <img src="output\figures\uyu_analysis\payment_methods_uyu.png" alt="Análisis UYU" class="card-img-top">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Análisis UYU</h6>
+                                        </div>
+                                    </div>
+                                </div>
+                            
+                        </div>
+                    </div>
+
+                    <!-- General Analysis Tab -->
+                    <div class="tab-pane fade" id="general" role="tabpanel">
+                        <h3 class="mb-4">
+                            <i class="fas fa-chart-pie me-2"></i>Análisis General
+                        </h3>
+                        
+                        <div class="figure-grid">
+                            
+                                <div class="figure-card">
+                                    <div class="card">
+                                        <img src="output\figures\general\status_distribution_by_period.png" alt="Análisis General" class="card-img-top">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Análisis General</h6>
+                                        </div>
+                                    </div>
+                                </div>
+                            
+                                <div class="figure-card">
+                                    <div class="card">
+                                        <img src="output\figures\general\asset_evolution.png" alt="Análisis General" class="card-img-top">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Análisis General</h6>
+                                        </div>
+                                    </div>
+                                </div>
+                            
+                        </div>
+                    </div>
+
+                    <!-- Counterparty Analysis Tab -->
+                    <div class="tab-pane fade" id="counterparty" role="tabpanel">
+                        <h3 class="mb-4">
+                            <i class="fas fa-handshake me-2"></i>Análisis de Contrapartes
+                        </h3>
+                        
+                        <div class="figure-grid">
+                            
+                                <div class="figure-card">
+                                    <div class="card">
+                                        <img src="output\figures\counterparty\counterparty_analysis\counterparty_volume_ranking_consolidated.png" alt="Análisis de Contrapartes" class="card-img-top">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Contrapartes</h6>
+                                        </div>
+                                    </div>
+                                </div>
+                            
+                                <div class="figure-card">
+                                    <div class="card">
+                                        <img src="output\figures\counterparty\counterparty_analysis\counterparty_volume_vs_frequency_consolidated.png" alt="Análisis de Contrapartes" class="card-img-top">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Contrapartes</h6>
+                                        </div>
+                                    </div>
+                                </div>
+                            
+                                <div class="figure-card">
+                                    <div class="card">
+                                        <img src="output\figures\counterparty\counterparty_analysis\counterparty_vip_tier_distribution_consolidated.png" alt="Análisis de Contrapartes" class="card-img-top">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Contrapartes</h6>
+                                        </div>
+                                    </div>
+                                </div>
+                            
+                                <div class="figure-card">
+                                    <div class="card">
+                                        <img src="output\figures\counterparty\counterparty_analysis\counterparty_payment_preferences_heatmap_consolidated.png" alt="Análisis de Contrapartes" class="card-img-top">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Contrapartes</h6>
+                                        </div>
+                                    </div>
+                                </div>
+                            
+                                <div class="figure-card">
+                                    <div class="card">
+                                        <img src="output\figures\counterparty\counterparty_analysis\counterparty_temporal_timeline_consolidated.png" alt="Análisis de Contrapartes" class="card-img-top">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Contrapartes</h6>
+                                        </div>
+                                    </div>
+                                </div>
+                            
+                                <div class="figure-card">
+                                    <div class="card">
+                                        <img src="output\figures\counterparty\counterparty_analysis\counterparty_efficiency_vs_volume_consolidated.png" alt="Análisis de Contrapartes" class="card-img-top">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Contrapartes</h6>
+                                        </div>
+                                    </div>
+                                </div>
+                            
+                                <div class="figure-card">
+                                    <div class="card">
+                                        <img src="output\figures\counterparty\counterparty_analysis\counterparty_trading_patterns_radar_consolidated.png" alt="Análisis de Contrapartes" class="card-img-top">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Contrapartes</h6>
+                                        </div>
+                                    </div>
+                                </div>
+                            
+                        </div>
+                    </div>
+
+                    <!-- Sessions Analysis Tab -->
+                    <div class="tab-pane fade" id="sessions" role="tabpanel">
+                        <h3 class="mb-4">
+                            <i class="fas fa-clock me-2"></i>Análisis de Sesiones
+                        </h3>
+                        
+                        <div class="figure-grid">
+                            
+                                <div class="figure-card">
+                                    <div class="card">
+                                        <img src="output\figures\sessions\session_duration_distribution_consolidated.png" alt="Análisis de Sesiones" class="card-img-top">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Sesiones de Trading</h6>
+                                        </div>
+                                    </div>
+                                </div>
+                            
+                                <div class="figure-card">
+                                    <div class="card">
+                                        <img src="output\figures\sessions\session_operations_distribution_consolidated.png" alt="Análisis de Sesiones" class="card-img-top">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Sesiones de Trading</h6>
+                                        </div>
+                                    </div>
+                                </div>
+                            
+                                <div class="figure-card">
+                                    <div class="card">
+                                        <img src="output\figures\sessions\session_start_hour_distribution_consolidated.png" alt="Análisis de Sesiones" class="card-img-top">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Sesiones de Trading</h6>
+                                        </div>
+                                    </div>
+                                </div>
+                            
+                                <div class="figure-card">
+                                    <div class="card">
+                                        <img src="output\figures\sessions\session_volume_vs_duration_consolidated.png" alt="Análisis de Sesiones" class="card-img-top">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Sesiones de Trading</h6>
+                                        </div>
+                                    </div>
+                                </div>
+                            
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Export Section -->
+        <div class="row mt-5">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">
+                            <i class="fas fa-download me-2"></i>Descargas
+                        </h5>
+                        <p class="card-text">Descarga los datos consolidados para análisis adicional</p>
+                        <a href="P2P_Analysis_Consolidated.xlsx" class="btn btn-success btn-lg">
+                            <i class="fas fa-file-excel me-2"></i>Descargar Excel Consolidado
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="mt-5 py-4" style="background-color: var(--primary-color);">
+        <div class="container text-center text-white">
+            <p class="mb-0">
+                © 2025 P2P Advanced Analytics Engine | 
+                Generado el 2025-08-08 18:24:07
+            </p>
+        </div>
+    </footer>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        // Add loading states and smooth transitions
+        document.addEventListener('DOMContentLoaded', function() {
+            // Add smooth scrolling to tabs
+            const tabButtons = document.querySelectorAll('[data-bs-toggle="tab"]');
+            tabButtons.forEach(button => {
+                button.addEventListener('shown.bs.tab', function() {
+                    window.scrollTo({
+                        top: 0,
+                        behavior: 'smooth'
+                    });
+                });
+            });
+            
+            // Add loading effect to images
+            const images = document.querySelectorAll('.figure-card img');
+            images.forEach(img => {
+                img.addEventListener('load', function() {
+                    this.style.opacity = '1';
+                    this.style.transition = 'opacity 0.3s ease';
+                });
+            });
+        });
+    </script>
+</body>
+</html> 

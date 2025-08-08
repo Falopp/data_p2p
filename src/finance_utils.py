@@ -1,6 +1,7 @@
 import polars as pl
 import logging
 import numpy as np
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,65 @@ def calculate_sharpe_ratio(
     sharpe_ratio_annualized = sharpe_ratio_daily * np.sqrt(periods_per_year)
 
     return sharpe_ratio_annualized
+
+
+def calculate_sortino_ratio(
+    daily_returns: pl.Series,
+    risk_free_rate_annual: float = 0.0,
+    periods_per_year: int = 252,
+) -> Optional[float]:
+    """Calcula el Ratio de Sortino anualizado.
+
+    Usa desviación estándar solo de retornos negativos como downside risk.
+    """
+    if daily_returns.is_empty():
+        return None
+    risk_free_daily = (1 + risk_free_rate_annual) ** (1 / periods_per_year) - 1
+    excess = (daily_returns - risk_free_daily).cast(pl.Float64).drop_nulls()
+    if excess.is_empty():
+        return None
+    downside = excess.filter(excess < 0)
+    if downside.is_empty():
+        return None
+    mean_excess = excess.mean()
+    downside_std = downside.std()
+    if downside_std is None or downside_std == 0:
+        return None
+    sortino_daily = mean_excess / downside_std
+    return sortino_daily * np.sqrt(periods_per_year)
+
+
+def compute_drawdown_series(values: pl.Series) -> pl.Series:
+    """Devuelve la serie de drawdowns relativos dado un equity curve (valores positivos)."""
+    if values.is_empty():
+        return pl.Series([], dtype=pl.Float64)
+    values = values.cast(pl.Float64)
+    running_max = values.cum_max()
+    drawdown = (values / running_max) - 1.0
+    return drawdown
+
+
+def calculate_max_drawdown(values: pl.Series) -> Optional[float]:
+    """Calcula el máximo drawdown (valor más negativo) de una curva de equity."""
+    if values.is_empty():
+        return None
+    dd = compute_drawdown_series(values)
+    if dd.is_empty():
+        return None
+    return dd.min()
+
+
+def calculate_calmar_ratio(
+    equity_values: pl.Series,
+    annual_return: Optional[float],
+) -> Optional[float]:
+    """Calmar = retorno anualizado / |max drawdown|. Requiere equity y retorno anual."""
+    if annual_return is None:
+        return None
+    mdd = calculate_max_drawdown(equity_values)
+    if mdd is None or mdd == 0:
+        return None
+    return annual_return / abs(mdd)
 
 
 # Ejemplo de uso (se puede eliminar o comentar)

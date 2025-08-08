@@ -1,0 +1,91 @@
+{
+  "kpis": {
+    "vol_total": 15334315.009999998,
+    "vol_usd": 2424151.4399999976,
+    "vol_uyu": 12910163.570000002,
+    "ops_total": 3398,
+    "fees_total": 4706692.3626
+  },
+  "risk": {
+    "USD": {
+      "VaR95": -0.9998321433025114,
+      "CVaR95": -0.999916836916599,
+      "VaR99": -0.9999551556913229,
+      "CVaR99": -0.9999812110946246,
+      "sharpe": 3.027074265037735,
+      "sortino": 49733.15695243517,
+      "max_drawdown": -0.9999902934594357
+    },
+    "UYU": {
+      "VaR95": -0.05261422303506708,
+      "CVaR95": -0.1468694365889686,
+      "VaR99": -0.08619693673446462,
+      "CVaR99": -0.40464795305260354,
+      "sharpe": 1.033301860261124,
+      "sortino": 17528.420881718423,
+      "max_drawdown": -0.9999604506616346
+    }
+  },
+  "concentration": {
+    "top10_volume_pct": 45.73187392114266,
+    "HHI": 0.03572599289864351,
+    "top1": {
+      "Counterparty": "P2P-2d243a5d",
+      "total_volume": 409307.29,
+      "operations": 8
+    }
+  },
+  "efficiency": {
+    "top5": {
+      "Counterparty": [
+        "RAMZEZERG",
+        "P2P-617b67s9",
+        "P2P-3ca1005g",
+        "Cosmo_Change",
+        "P2P-14f1f0rf"
+      ],
+      "efficiency_score": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "completion_rate": [
+        100.0,
+        100.0,
+        100.0,
+        100.0,
+        100.0
+      ],
+      "cancellation_rate": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "median_efficiency": null
+  },
+  "sessions": {
+    "summary": {
+      "avg_ops_per_session": [
+        1.3446774831816384
+      ],
+      "avg_duration_min": [
+        4.283900540825748
+      ],
+      "avg_ops_per_hour": [
+        82.67668473203047
+      ],
+      "avg_vol_per_min": [
+        289550.4863711331
+      ]
+    },
+    "peak_hour": {
+      "start_hour": 14,
+      "num_sessions": 223
+    }
+  }
+}

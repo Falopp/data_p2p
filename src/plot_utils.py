@@ -36,6 +36,7 @@ def save_figure(
     filename: str,
     dpi: int = 300,
     tight_layout: bool = True,
+    export_svg_pdf: bool = True,
 ) -> str:
     """
     Guarda una figura en disco, creando el directorio si hace falta.
@@ -58,5 +59,16 @@ def save_figure(
             pass
     file_path = os.path.join(out_dir, filename)
     fig.savefig(file_path, dpi=dpi, bbox_inches="tight")
+    # Exportaciones adicionales para presentaciones de alta calidad
+    if export_svg_pdf:
+        base, _ = os.path.splitext(file_path)
+        try:
+            fig.savefig(f"{base}.svg", bbox_inches="tight")
+        except Exception:
+            pass
+        try:
+            fig.savefig(f"{base}.pdf", bbox_inches="tight")
+        except Exception:
+            pass
     plt.close(fig)
     return file_path

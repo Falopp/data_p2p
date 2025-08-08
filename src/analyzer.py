@@ -12,6 +12,14 @@ from .transformations.patches import (
     patch_usdt_usd_price,
     create_total_price_usd_equivalent,
 )
+from .finance_utils import (
+    calculate_daily_returns,
+    calculate_rolling_pnl,
+    calculate_sharpe_ratio,
+    calculate_sortino_ratio,
+    compute_drawdown_series,
+    calculate_max_drawdown,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -742,4 +750,41 @@ def analyze(
         )
 
     logger.info("Análisis finalizado.")
+    # --- Métricas de riesgo básicas a nivel de precio por fiat (si disponible) ---
+    try:
+        if "Match_time_local" in df_processed.columns and "Price_num" in df_processed.columns:
+            # Serie diaria de precios agregada por fiat
+            for fiat in ["USD", "UYU"]:
+                df_fiat = df_processed.filter(pl.col("fiat_type") == fiat)
+                if df_fiat.is_empty():
+                    continue
+                daily_prices = (
+                    df_fiat
+                    .with_columns(pl.col("Match_time_local").dt.date().alias("date"))
+                    .group_by("date")
+                    .agg(pl.mean("Price_num").alias("price"))
+                    .sort("date")
+                )
+                if daily_prices.height < 3:
+                    continue
+                returns = calculate_daily_returns(daily_prices.get_column("price"))
+                sharpe = calculate_sharpe_ratio(returns)
+                sortino = calculate_sortino_ratio(returns)
+                # Equity simple como producto de (1+r)
+                one_plus = (1 + returns).cast(pl.Float64)
+                equity = one_plus.cum_prod()
+                max_dd = calculate_max_drawdown(equity)
+                dd_series = compute_drawdown_series(equity)
+
+                metrics[f"risk_{fiat.lower()}_daily_returns"] = pl.DataFrame({"date": daily_prices["date"], "return": returns})
+                metrics[f"risk_{fiat.lower()}_drawdown_series"] = pl.DataFrame({"date": daily_prices["date"], "drawdown": dd_series})
+                metrics[f"risk_{fiat.lower()}_summary"] = pl.DataFrame(
+                    {
+                        "metric": ["sharpe", "sortino", "max_drawdown"],
+                        "value": [sharpe, sortino, max_dd],
+                    }
+                )
+    except Exception as _e:
+        logger.warning(f"No se pudieron calcular métricas de riesgo básicas: {_e}")
+
     return df_processed, metrics

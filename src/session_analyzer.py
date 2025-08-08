@@ -25,12 +25,9 @@ def analyze_trading_sessions(
     )
 
     # Verificar columnas requeridas
-    required_cols = [
-        "Match_time_utc_dt",
-        "TotalPrice_num",
-        "Quantity_num",
-        "Counterparty",
-    ]
+    # Usar tiempo local preprocesado; si no existe, intentar fallback a UTC si estuviera
+    time_col = "Match_time_local" if "Match_time_local" in df.columns else "Match_time_utc_dt"
+    required_cols = [time_col, "TotalPrice_num", "Quantity_num", "Counterparty"]
     missing_cols = [col for col in required_cols if col not in df.columns]
 
     if missing_cols:
@@ -39,10 +36,10 @@ def analyze_trading_sessions(
 
     # Filtrar datos válidos y ordenar por tiempo
     df_sessions = df.filter(
-        (pl.col("Match_time_utc_dt").is_not_null())
+        (pl.col(time_col).is_not_null())
         & (pl.col("TotalPrice_num").is_not_null())
         & (pl.col("TotalPrice_num") > 0)
-    ).sort("Match_time_utc_dt")
+    ).sort(time_col)
 
     if df_sessions.is_empty():
         logger.warning("No hay datos válidos para análisis de sesiones")
@@ -53,7 +50,7 @@ def analyze_trading_sessions(
     )
 
     # 1. Identificar sesiones basadas en gaps temporales
-    sessions_data = _identify_sessions(df_sessions, session_gap_minutes)
+    sessions_data = _identify_sessions(df_sessions, session_gap_minutes, time_col)
 
     # 2. Analizar características de sesiones
     session_stats = _analyze_session_characteristics(sessions_data)
@@ -82,17 +79,17 @@ def analyze_trading_sessions(
     }
 
 
-def _identify_sessions(df: pl.DataFrame, gap_minutes: int) -> pl.DataFrame:
+def _identify_sessions(df: pl.DataFrame, gap_minutes: int, time_col: str) -> pl.DataFrame:
     """Identifica sesiones basadas en gaps temporales."""
     logger.info("Identificando sesiones basadas en gaps temporales...")
 
     # Convertir a pandas para procesamiento temporal más fácil
     df_pandas = df.to_pandas()
-    df_pandas = df_pandas.sort_values("Match_time_utc_dt").reset_index(drop=True)
+    df_pandas = df_pandas.sort_values(time_col).reset_index(drop=True)
 
     # Calcular diferencias temporales entre operaciones consecutivas
     df_pandas["time_diff_minutes"] = (
-        df_pandas["Match_time_utc_dt"].diff().dt.total_seconds() / 60
+        df_pandas[time_col].diff().dt.total_seconds() / 60
     )
 
     # Identificar inicio de nueva sesión cuando gap > threshold
@@ -106,9 +103,7 @@ def _identify_sessions(df: pl.DataFrame, gap_minutes: int) -> pl.DataFrame:
     # Volver a polars
     df_with_sessions = pl.from_pandas(df_pandas)
 
-    logger.info(
-        f"Identificadas {df_pandas['session_id'].nunique()} sesiones de trading"
-    )
+    logger.info(f"Identificadas {df_pandas['session_id'].nunique()} sesiones de trading")
 
     return df_with_sessions
 
@@ -125,8 +120,8 @@ def _analyze_session_characteristics(df: pl.DataFrame) -> pl.DataFrame:
                 pl.sum("TotalPrice_num").alias("total_volume"),
                 pl.mean("TotalPrice_num").alias("avg_volume_per_op"),
                 pl.sum("Quantity_num").alias("total_quantity"),
-                pl.min("Match_time_utc_dt").alias("session_start"),
-                pl.max("Match_time_utc_dt").alias("session_end"),
+                pl.min("Match_time_local").alias("session_start"),
+                pl.max("Match_time_local").alias("session_end"),
                 pl.col("Counterparty").n_unique().alias("unique_counterparties"),
                 pl.col("fiat_type").mode().first().alias("dominant_fiat"),
                 pl.col("asset_type").mode().first().alias("dominant_asset"),
@@ -168,9 +163,9 @@ def _analyze_session_patterns(df: pl.DataFrame) -> pl.DataFrame:
     # Añadir información temporal
     df_with_time = df.with_columns(
         [
-            pl.col("Match_time_utc_dt").dt.hour().alias("hour"),
-            pl.col("Match_time_utc_dt").dt.weekday().alias("weekday"),
-            pl.col("Match_time_utc_dt").dt.strftime("%Y-%m").alias("year_month"),
+            pl.col("Match_time_local").dt.hour().alias("hour"),
+            pl.col("Match_time_local").dt.weekday().alias("weekday"),
+            pl.col("Match_time_local").dt.strftime("%Y-%m").alias("year_month"),
         ]
     )
 
@@ -212,8 +207,8 @@ def _analyze_session_efficiency(df: pl.DataFrame) -> pl.DataFrame:
                 pl.std("TotalPrice_num").alias("volume_volatility"),
                 pl.col("TotalPrice_num").quantile(0.75).alias("q75_volume"),
                 pl.col("TotalPrice_num").quantile(0.25).alias("q25_volume"),
-                pl.min("Match_time_utc_dt").alias("session_start"),
-                pl.max("Match_time_utc_dt").alias("session_end"),
+                pl.min("Match_time_local").alias("session_start"),
+                pl.max("Match_time_local").alias("session_end"),
             ]
         )
         .with_columns(
@@ -263,8 +258,8 @@ def _analyze_counterparty_sessions(df: pl.DataFrame) -> pl.DataFrame:
             [
                 pl.count("session_id").alias("ops_in_session"),
                 pl.sum("TotalPrice_num").alias("volume_in_session"),
-                pl.min("Match_time_utc_dt").alias("first_op_in_session"),
-                pl.max("Match_time_utc_dt").alias("last_op_in_session"),
+                pl.min("Match_time_local").alias("first_op_in_session"),
+                pl.max("Match_time_local").alias("last_op_in_session"),
             ]
         )
         .group_by("Counterparty")
@@ -300,8 +295,8 @@ def _analyze_temporal_distribution(df: pl.DataFrame) -> pl.DataFrame:
         df.group_by("session_id")
         .agg(
             [
-                pl.min("Match_time_utc_dt").alias("session_start"),
-                pl.max("Match_time_utc_dt").alias("session_end"),
+                pl.min("Match_time_local").alias("session_start"),
+                pl.max("Match_time_local").alias("session_end"),
                 pl.count("session_id").alias("num_operations"),
                 pl.sum("TotalPrice_num").alias("total_volume"),
             ]

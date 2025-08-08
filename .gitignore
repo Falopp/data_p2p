@@ -1,7 +1,5 @@
 # Archivos y carpetas generados
-output/
-output_old/
-data/
+
 
 # Entornos virtuales de Python
 venv/

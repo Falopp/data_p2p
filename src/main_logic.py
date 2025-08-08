@@ -317,57 +317,15 @@ class AnalysisRunner:
         """
         Lanza el análisis principal para el DataFrame configurado.
         """
-        all_period_data: Dict[str, Dict[str, Any]] = {}
-        years = self._determine_years()
-        for year in years:
-            period_output = Path(self.output_dir) / year
-            # Preparar DataFrame para este periodo
-            if year == "total":
-                df_period = self.df.clone()
-            else:
-                df_period = (
-                    self.df.filter(pl.col("Year") == int(year)).clone()
-                    if "Year" in self.df.columns
-                    else self.df.clone()
-                )
-            # Aplicar filtros de estado
-            status_datasets = _apply_status_filters_for_period(
-                df_period, year, self.config
-            )
-            all_period_data[year] = {}
-            for status, df_status in status_datasets.items():
-                if df_status.is_empty():
-                    all_period_data[year][status] = {
-                        "df": df_status.clone(),
-                        "metrics": {},
-                    }
-                    continue
-                processed_df, metrics = analyze(
-                    df=df_status.clone(),
-                    col_map=self.col_map,
-                    sell_config=self.config,
-                    cli_args=self.cli_args,
-                )
-                all_period_data[year][status] = {
-                    "df": processed_df.clone(),
-                    "metrics": metrics,
-                }
-                save_outputs(
-                    metrics_to_save=metrics,
-                    df_to_plot_from=processed_df.clone(),
-                    config=self.config,
-                    base_output_dir=str(period_output),
-                    output_label=year,
-                    status_subdir=status,
-                    cli_args=self.cli_args,
-                    col_map=self.col_map,
-                    file_name_suffix_from_cli=self.clean_filename_suffix_cli,
-                    title_suffix_from_cli=self.analysis_title_suffix_cli,
-                )
-        # Generar reporte unificado global
-        if not self.cli_args.no_unified_report:
-            reporter = UnifiedReporter(str(self.output_dir), self.config, self.cli_args)
-            reporter.generate_unified_report(all_period_data)
+        execute_analysis(
+            df=self.df,
+            col_map=self.col_map,
+            config=self.config,
+            cli_args=self.cli_args,
+            output_dir=self.output_dir,
+            clean_filename_suffix_cli=self.clean_filename_suffix_cli,
+            analysis_title_suffix_cli=self.analysis_title_suffix_cli,
+        )
 
     def _determine_years(self) -> list[str]:
         """
@@ -401,3 +359,102 @@ class AnalysisRunner:
                 ]
             years_to_analyze = unique_years + ["total"]
         return years_to_analyze
+
+
+def execute_analysis(
+    *,
+    df: pl.DataFrame,
+    col_map: Dict,
+    config: Dict,
+    cli_args: argparse.Namespace,
+    output_dir: str,
+    clean_filename_suffix_cli: str,
+    analysis_title_suffix_cli: str,
+) -> None:
+    """
+    Orquesta el análisis por año y estado y genera salidas y reporte unificado.
+
+    Esta función existe para compatibilidad con tests y para facilitar su reuse.
+    """
+    all_period_data: Dict[str, Dict[str, Any]] = {}
+
+    # Determinar años a analizar (reutiliza la lógica de AnalysisRunner)
+    def _determine_years_local() -> list[str]:
+        if cli_args.no_annual_breakdown:
+            return ["total"]
+        elif cli_args.year and str(cli_args.year).lower() != "all":
+            try:
+                year_int = int(cli_args.year)
+                return [str(year_int), "total"]
+            except ValueError:
+                years = [
+                    str(y)
+                    for y in df.select(pl.col("Year")).to_series().to_list()
+                    if isinstance(y, int)
+                ]
+                return years + ["total"]
+        else:
+            unique_years = []
+            if "Year" in df.columns:
+                unique_years = [
+                    str(y)
+                    for y in df.select(pl.col("Year").unique()).to_series().to_list()
+                    if isinstance(y, int)
+                ]
+            return unique_years + ["total"]
+
+    years = _determine_years_local()
+
+    for year in years:
+        period_output = Path(output_dir) / year
+        # Preparar DataFrame para este periodo
+        if year == "total":
+            df_period = df.clone()
+        else:
+            df_period = (
+                df.filter(pl.col("Year") == int(year)).clone()
+                if "Year" in df.columns
+                else df.clone()
+            )
+
+        # Aplicar filtros de estado
+        status_datasets = _apply_status_filters_for_period(df_period, year, config)
+        all_period_data[year] = {}
+
+        for status, df_status in status_datasets.items():
+            if df_status.is_empty():
+                all_period_data[year][status] = {
+                    "df": df_status.clone(),
+                    "metrics": {},
+                }
+                continue
+
+            processed_df, metrics = analyze(
+                df=df_status.clone(),
+                col_map=col_map,
+                sell_config=config,
+                cli_args=cli_args,
+            )
+
+            all_period_data[year][status] = {
+                "df": processed_df.clone(),
+                "metrics": metrics,
+            }
+
+            save_outputs(
+                metrics_to_save=metrics,
+                df_to_plot_from=processed_df.clone(),
+                config=config,
+                base_output_dir=str(period_output),
+                output_label=year,
+                status_subdir=status,
+                cli_args=cli_args,
+                col_map=col_map,
+                file_name_suffix_from_cli=clean_filename_suffix_cli,
+                title_suffix_from_cli=analysis_title_suffix_cli,
+            )
+
+    # Generar reporte unificado global
+    if not getattr(cli_args, "no_unified_report", False):
+        reporter = UnifiedReporter(str(output_dir), config, cli_args)
+        reporter.generate_unified_report(all_period_data)

@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reporte de Operaciones P2P - Consolidado Total (Canceladas) - Panel P2P Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/swiper/swiper-bundle.min.css" />
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7fafc; /* Tailwind gray-100 */
+        }
+        .card { /* Estilo base para otras tarjetas que no sean el slider */
+            background-color: white;
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        .table-responsive table thead th {
+            background-color: #edf2f7; /* Tailwind gray-200 */
+        }
+        .datatable-ready {
+            width: 100%;
+        }
+
+        /* Estilos para el contenedor del slider y los slides */
+        .swiper-container {
+            width: 100%;
+            padding-top: 20px; /* Espacio para el título encima del slider */
+            padding-bottom: 50px; /* Espacio para la paginación y botones */
+            position: relative;
+        }
+        .swiper-slide {
+            background-color: #ffffff; /* Fondo blanco para cada slide */
+            border-radius: 0.75rem; /* Tailwind rounded-xl */
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); /* Sombra suave */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start; /* Alinea contenido al inicio */
+            text-align: center;
+            padding: 1.5rem; /* Tailwind p-6 */
+            box-sizing: border-box;
+            /* Altura: Considerar autoHeight en Swiper o una altura mínima/fija si es necesario */
+             min-height: 500px; /* Altura mínima para asegurar espacio para el gráfico */
+        }
+        .swiper-slide .slide-title {
+            font-size: 1.25rem; /* Tailwind text-xl */
+            font-weight: 600; /* Tailwind font-semibold */
+            color: #374151; /* Tailwind gray-700 */
+            margin-bottom: 1rem; /* Tailwind mb-4 */
+            width: 100%;
+        }
+        .swiper-slide .figure-content-wrapper {
+            width: 100%;
+            height: calc(100% - 3rem); /* Ajustar para que el contenido del gráfico ocupe el espacio restante */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .swiper-slide img.figure-image, 
+        .swiper-slide .plotly-iframe-wrapper {
+            max-width: 100%;
+            max-height: 100%; /* Asegurar que el contenido no desborde el slide */
+            object-fit: contain; /* Para imágenes, asegura que se vean completas */
+        }
+         .swiper-slide .plotly-iframe-wrapper {
+            width: 100%;
+            /* height: 450px; */ /* Altura fija para iframes, ajustar según necesidad */
+            padding-top: 75%; /* Aspect ratio 4:3 (3/4 * 100) - Ajusta este valor para diferentes aspect ratios */
+            position: relative; /* Necesario para el posicionamiento absoluto del iframe hijo */
+            overflow: hidden;
+            border-radius: 0.5rem; /* Tailwind rounded-lg */
+            border: 1px solid #e5e7eb; /* Tailwind border-gray-200 */
+        }
+        .swiper-slide iframe {
+            position: absolute; /* Posiciona el iframe dentro del wrapper */
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: 0; /* Quita el borde del iframe si no es necesario */
+        }
+        .swiper-slide .iframe-link {
+            font-size: 0.75rem; /* Tailwind text-xs */
+            color: #3b82f6; /* Tailwind text-blue-500 */
+            margin-top: 0.5rem; /* Tailwind mt-2 */
+            display: block;
+        }
+        .swiper-slide .iframe-link:hover {
+            color: #1d4ed8; /* Tailwind text-blue-700 */
+            text-decoration: underline;
+        }
+
+
+        /* Estilos para la navegación de Swiper */
+        .swiper-button-next, .swiper-button-prev {
+            color: #3498db; /* Color primario para los botones */
+            background-color: rgba(255, 255, 255, 0.8);
+            border-radius: 50%;
+            width: 44px;
+            height: 44px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .swiper-button-next:after, .swiper-button-prev:after {
+            font-size: 1.25rem; /* Tamaño de los iconos de flecha */
+            font-weight: bold;
+        }
+        .swiper-pagination-bullet-active {
+            background-color: #3498db; /* Color primario para la paginación activa */
+        }
+
+        .figure-image { /* Estilo general para imágenes fuera del slider si las hubiera */
+            max-width: 100%;
+            height: auto;
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+    </style>
+</head>
+<body class="antialiased text-gray-800">
+
+    <header class="bg-white shadow-md fixed top-0 left-0 right-0 z-50">
+        <div class="container mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-20">
+                <div>
+                    <h1 class="text-xl sm:text-2xl lg:text-3xl font-bold text-blue-600">Reporte de Operaciones P2P - Consolidado Total (Canceladas)</h1>
+                    <p class="text-sm text-gray-500">Generado el: 2025-08-08 18:23:46 (UTC-0300)</p>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="pt-24">
+        <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+            
+            <div class="card mb-8 p-6">
+                <h2 class="text-xl font-semibold text-gray-700 mb-4 border-b pb-2">Filtros Aplicados</h2>
+                <ul class="flex flex-wrap gap-2">
+                    
+                        <li class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm">
+                            <strong class="font-medium">Periodo Analizado:</strong> Total Consolidado
+                        </li>
+                    
+                        <li class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm">
+                            <strong class="font-medium">Categoría de Estado Procesada:</strong> Canceladas
+                        </li>
+                    
+                </ul>
+            </div>
+            
+
+            
+            
+            
+
+            
+
+            
+                
+                <div class="card mb-8 p-6">
+                    <h2 class="text-xl font-semibold text-gray-700 mb-4 border-b pb-2">Asset Stats</h2>
+                    
+                        <div class="table-responsive overflow-x-auto rounded-lg border">
+                            <table class="dataframe table table-striped table-hover table-sm datatable-ready">
+  <thead>
+    <tr style="text-align: right;">
+      <th>asset_type</th>
+      <th>order_type</th>
+      <th>operations</th>
+      <th>quantity</th>
+      <th>total_fiat</th>
+      <th>total_fees</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>USDT</td>
+      <td>Sell</td>
+      <td>1329</td>
+      <td>844419.51</td>
+      <td>11358569.99</td>
+      <td>1988.63</td>
+    </tr>
+    <tr>
+      <td>USDT</td>
+      <td>Buy</td>
+      <td>74</td>
+      <td>48223.54</td>
+      <td>138674.93</td>
+      <td>108.3</td>
+    </tr>
+    <tr>
+      <td>BUSD</td>
+      <td>Sell</td>
+      <td>2</td>
+      <td>153570584.435</td>
+      <td>24055.21</td>
+      <td>285410.907</td>
+    </tr>
+    <tr>
+      <td>BUSD</td>
+      <td>Buy</td>
+      <td>7</td>
+      <td>78725794.685</td>
+      <td>11110.64</td>
+      <td>220531.4456</td>
+    </tr>
+    <tr>
+      <td>BTC</td>
+      <td>Buy</td>
+      <td>3</td>
+      <td>3896.681</td>
+      <td>2099.39</td>
+      <td>14.236</td>
+    </tr>
+    <tr>
+      <td>ETH</td>
+      <td>Buy</td>
+      <td>1</td>
+      <td>12764.378</td>
+      <td>132.41</td>
+      <td>3.574</td>
+    </tr>
+  </tbody>
+</table>
+                        </div>
+                    
+                </div>
+                
+                <div class="card mb-8 p-6">
+                    <h2 class="text-xl font-semibold text-gray-700 mb-4 border-b pb-2">Fiat Stats</h2>
+                    
+                        <div class="table-responsive overflow-x-auto rounded-lg border">
+                            <table class="dataframe table table-striped table-hover table-sm datatable-ready">
+  <thead>
+    <tr style="text-align: right;">
+      <th>fiat_type</th>
+      <th>order_type</th>
+      <th>operations</th>
+      <th>total_fiat</th>
+      <th>avg_price</th>
+      <th>total_fees</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>UYU</td>
+      <td>Sell</td>
+      <td>588</td>
+      <td>10756228.66</td>
+      <td>43.539422</td>
+      <td>5691.204</td>
+    </tr>
+    <tr>
+      <td>USD</td>
+      <td>Sell</td>
+      <td>743</td>
+      <td>626396.54</td>
+      <td>1.043483</td>
+      <td>281708.333</td>
+    </tr>
+    <tr>
+      <td>UYU</td>
+      <td>Buy</td>
+      <td>13</td>
+      <td>98673.92</td>
+      <td>40.243077</td>
+      <td>109.81</td>
+    </tr>
+    <tr>
+      <td>USD</td>
+      <td>Buy</td>
+      <td>72</td>
+      <td>53343.45</td>
+      <td>1566.40675</td>
+      <td>220547.7456</td>
+    </tr>
+  </tbody>
+</table>
+                        </div>
+                    
+                </div>
+                
+            
+
+            
+            <div class="mb-8"> <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">Visualizaciones Gráficas</h2>
+                <div class="swiper-container card p-4 md:p-6"> <div class="swiper-wrapper">
+                        
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">Ranking de Contrapartes por Volumen</h3>
+                            <div class="figure-content-wrapper">
+                            
+                                
+                                    <img src="..\figures\counterparty_analysis\counterparty_volume_ranking.png" alt="Ranking de Contrapartes por Volumen" class="figure-image">
+                                
+                            
+                            </div>
+                            
+                            
+                        </div>
+                        
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">Volumen vs Frecuencia de Trading</h3>
+                            <div class="figure-content-wrapper">
+                            
+                                
+                                    <img src="..\figures\counterparty_analysis\counterparty_volume_vs_frequency.png" alt="Volumen vs Frecuencia de Trading" class="figure-image">
+                                
+                            
+                            </div>
+                            
+                            
+                        </div>
+                        
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">Distribución de Tiers VIP</h3>
+                            <div class="figure-content-wrapper">
+                            
+                                
+                                    <img src="..\figures\counterparty_analysis\counterparty_vip_tier_distribution.png" alt="Distribución de Tiers VIP" class="figure-image">
+                                
+                            
+                            </div>
+                            
+                            
+                        </div>
+                        
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">Preferencias de Métodos de Pago</h3>
+                            <div class="figure-content-wrapper">
+                            
+                                
+                                    <img src="..\figures\counterparty_analysis\counterparty_payment_preferences_heatmap.png" alt="Preferencias de Métodos de Pago" class="figure-image">
+                                
+                            
+                            </div>
+                            
+                            
+                        </div>
+                        
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">Evolución Temporal por Contraparte</h3>
+                            <div class="figure-content-wrapper">
+                            
+                                
+                                    <img src="..\figures\counterparty_analysis\counterparty_temporal_timeline.png" alt="Evolución Temporal por Contraparte" class="figure-image">
+                                
+                            
+                            </div>
+                            
+                            
+                        </div>
+                        
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">Eficiencia vs Volumen</h3>
+                            <div class="figure-content-wrapper">
+                            
+                                
+                                    <img src="..\figures\counterparty_analysis\counterparty_efficiency_vs_volume.png" alt="Eficiencia vs Volumen" class="figure-image">
+                                
+                            
+                            </div>
+                            
+                            
+                        </div>
+                        
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">Patrones de Trading (Radar)</h3>
+                            <div class="figure-content-wrapper">
+                            
+                                
+                                    <img src="..\figures\counterparty_analysis\counterparty_trading_patterns_radar.png" alt="Patrones de Trading (Radar)" class="figure-image">
+                                
+                            
+                            </div>
+                            
+                            
+                        </div>
+                        
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">Volumen Mensual de Fiat - Monthly Evolution Usd</h3>
+                            <div class="figure-content-wrapper">
+                            
+                                
+                                    <img src="..\figures\general\monthly_evolution_usd.png" alt="Volumen Mensual de Fiat - Monthly Evolution Usd" class="figure-image">
+                                
+                            
+                            </div>
+                            
+                            
+                        </div>
+                        
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">Volumen Mensual de Fiat - Monthly Evolution Uyu</h3>
+                            <div class="figure-content-wrapper">
+                            
+                                
+                                    <img src="..\figures\general\monthly_evolution_uyu.png" alt="Volumen Mensual de Fiat - Monthly Evolution Uyu" class="figure-image">
+                                
+                            
+                            </div>
+                            
+                            
+                        </div>
+                        
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">Distribución Tipos de Orden</h3>
+                            <div class="figure-content-wrapper">
+                            
+                                
+                                    <img src="..\figures\general\buy_sell_distribution.png" alt="Distribución Tipos de Orden" class="figure-image">
+                                
+                            
+                            </div>
+                            
+                            
+                        </div>
+                        
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">Distribución Estados de Orden</h3>
+                            <div class="figure-content-wrapper">
+                            
+                                
+                                    <img src="..\figures\general\order_status_distribution.png" alt="Distribución Estados de Orden" class="figure-image">
+                                
+                            
+                            </div>
+                            
+                            
+                        </div>
+                        
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">Flujo Fiat a Activo (Sankey General)</h3>
+                            <div class="figure-content-wrapper">
+                            
+                                
+                                    <div class="plotly-iframe-wrapper">
+                                        <iframe src="..\figures\general\sankey_fiat_to_asset.html" frameborder="0" class="no-swiping"></iframe>
+                                    </div>
+                                
+                            
+                            </div>
+                            
+                            <p>
+                                <a href="..\figures\general\sankey_fiat_to_asset.html" target="_blank" class="iframe-link">
+                                    Abrir en nueva pestaña
+                                </a>
+                            </p>
+                            
+                            
+                        </div>
+                        
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">Flujo Fiat a Activo (Sankey Combinado USD Eq.)</h3>
+                            <div class="figure-content-wrapper">
+                            
+                                
+                                    <div class="plotly-iframe-wrapper">
+                                        <iframe src="..\figures\combined\sankey_fiat_to_asset_combined_usd_eq.html" frameborder="0" class="no-swiping"></iframe>
+                                    </div>
+                                
+                            
+                            </div>
+                            
+                            <p>
+                                <a href="..\figures\combined\sankey_fiat_to_asset_combined_usd_eq.html" target="_blank" class="iframe-link">
+                                    Abrir en nueva pestaña
+                                </a>
+                            </p>
+                            
+                            
+                        </div>
+                        
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">Distribución Porcentual de Estados de Órdenes por Mes</h3>
+                            <div class="figure-content-wrapper">
+                            
+                                
+                                    <img src="..\figures\general\order_status_over_time_percentage.png" alt="Distribución Porcentual de Estados de Órdenes por Mes" class="figure-image">
+                                
+                            
+                            </div>
+                            
+                            
+                        </div>
+                        
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">Heatmap Actividad (Conteo por Hora/Día)</h3>
+                            <div class="figure-content-wrapper">
+                            
+                                
+                                    <img src="..\figures\general\heatmap_hour_day_order_number_count.png" alt="Heatmap Actividad (Conteo por Hora/Día)" class="figure-image">
+                                
+                            
+                            </div>
+                            
+                            
+                        </div>
+                        
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">Flujo Fiat a Activo (Sankey)</h3>
+                            <div class="figure-content-wrapper">
+                            
+                                
+                                    <div class="plotly-iframe-wrapper">
+                                        <iframe src="..\figures\sankey_fiat_to_asset.html" frameborder="0" class="no-swiping"></iframe>
+                                    </div>
+                                
+                            
+                            </div>
+                            
+                            <p>
+                                <a href="..\figures\sankey_fiat_to_asset.html" target="_blank" class="iframe-link">
+                                    Abrir en nueva pestaña
+                                </a>
+                            </p>
+                            
+                            
+                        </div>
+                        
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">Heatmap de Actividad (Conteo de Operaciones)</h3>
+                            <div class="figure-content-wrapper">
+                            
+                                
+                                    <img src="..\figures\general\heatmap_hour_day_order_number_count.png" alt="Heatmap de Actividad (Conteo de Operaciones)" class="figure-image">
+                                
+                            
+                            </div>
+                            
+                            
+                        </div>
+                        
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">Heatmap de Actividad (Volumen USD/USDT)</h3>
+                            <div class="figure-content-wrapper">
+                            
+                                
+                                    <img src="..\figures\usd_usdt\heatmap_hour_day_TotalPrice_num_sum_vol_usd_usdt.png" alt="Heatmap de Actividad (Volumen USD/USDT)" class="figure-image">
+                                
+                            
+                            </div>
+                            
+                            
+                        </div>
+                        
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">Heatmap de Actividad (Volumen UYU)</h3>
+                            <div class="figure-content-wrapper">
+                            
+                                
+                                    <img src="..\figures\uyu\heatmap_hour_day_TotalPrice_num_sum_vol_uyu.png" alt="Heatmap de Actividad (Volumen UYU)" class="figure-image">
+                                
+                            
+                            </div>
+                            
+                            
+                        </div>
+                        
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">Heatmap de Actividad (Volumen Combinado USD Eq.)</h3>
+                            <div class="figure-content-wrapper">
+                            
+                                
+                                    <img src="..\figures\combined\heatmap_hour_day_TotalPrice_USD_equivalent_sum_vol_combined_usd_eq.png" alt="Heatmap de Actividad (Volumen Combinado USD Eq.)" class="figure-image">
+                                
+                            
+                            </div>
+                            
+                            
+                        </div>
+                        
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">Volumen General (TotalPrice_num) por Día de la Semana</h3>
+                            <div class="figure-content-wrapper">
+                            
+                                
+                                    <img src="..\figures\general\volume_by_day_of_week_totalprice_num_general.png" alt="Volumen General (TotalPrice_num) por Día de la Semana" class="figure-image">
+                                
+                            
+                            </div>
+                            
+                            
+                        </div>
+                        
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">Volumen (USD/USDT) por Día de la Semana</h3>
+                            <div class="figure-content-wrapper">
+                            
+                                
+                                    <img src="..\figures\usd_usdt\volume_by_day_of_week_totalprice_num_usd_usdt.png" alt="Volumen (USD/USDT) por Día de la Semana" class="figure-image">
+                                
+                            
+                            </div>
+                            
+                            
+                        </div>
+                        
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">Volumen (UYU) por Día de la Semana</h3>
+                            <div class="figure-content-wrapper">
+                            
+                                
+                                    <img src="..\figures\uyu\volume_by_day_of_week_totalprice_num_uyu.png" alt="Volumen (UYU) por Día de la Semana" class="figure-image">
+                                
+                            
+                            </div>
+                            
+                            
+                        </div>
+                        
+                        <div class="swiper-slide">
+                            <h3 class="slide-title">Volumen Combinado (USD Eq.) por Día de la Semana</h3>
+                            <div class="figure-content-wrapper">
+                            
+                                
+                                    <img src="..\figures\combined\volume_by_day_of_week_totalprice_usd_equivalent_combined_usd_eq.png" alt="Volumen Combinado (USD Eq.) por Día de la Semana" class="figure-image">
+                                
+                            
+                            </div>
+                            
+                            
+                        </div>
+                        
+                    </div>
+                    <div class="swiper-pagination"></div>
+                    <div class="swiper-button-next"></div>
+                    <div class="swiper-button-prev"></div>
+                </div>
+            </div>
+            
+
+            
+
+        </div>
+    </main>
+
+    <footer class="bg-gray-800 text-gray-300 py-8 text-center">
+        <p>Reporte P2P Pro &copy; 2025</p>
+    </footer>
+
+    <script src="https://unpkg.com/swiper/swiper-bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            if (document.querySelector('.swiper-container')) {
+                var swiper = new Swiper('.swiper-container', {
+                    // Opciones de Swiper
+                    slidesPerView: 1,
+                    spaceBetween: 30,
+                    loop: false, // Poner en true si quieres loop infinito
+                    grabCursor: true,
+                    centeredSlides: true,
+                    autoHeight: true, // Descomentar si quieres que la altura se ajuste al slide actual
+                    pagination: {
+                        el: '.swiper-pagination',
+                        clickable: true,
+                    },
+                    navigation: {
+                        nextEl: '.swiper-button-next',
+                        prevEl: '.swiper-button-prev',
+                    },
+                    // Para evitar que el swipe del slider interfiera con el swipe/pan de Plotly
+                    noSwiping: true, // No swiping en general
+                    noSwipingClass: 'no-swiping', // Elementos con esta clase no permitirán swipe
+                    // Podrías necesitar ajustar `watchSlidesVisibility` y `watchSlidesProgress` si usas lazy loading
+                });
+            }
+        });
+    </script>
+    
+    <!--
+    <script src="https://code.jquery.com/jquery-3.7.0.js"></script>
+    <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/jquery.dataTables.min.css">
+    <script>
+        $(document).ready(function() {
+            $('.datatable-ready').DataTable({
+                responsive: true,
+            });
+        });
+    </script>
+    -->
+
+</body>
+</html>
